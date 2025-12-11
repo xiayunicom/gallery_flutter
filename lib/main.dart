@@ -24,7 +24,7 @@ const String serverPort = "8899";
 const String serverUrl = "http://$serverIp:$serverPort";
 
 // ==========================================
-// 全局任务管理器 & 缓存控制器
+// 全局任务管理器
 // ==========================================
 class TaskManager {
   static final TaskManager _instance = TaskManager._internal();
@@ -117,11 +117,8 @@ class TaskManager {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 扩大全局图片缓存，防止大列表回滚时重新加载
   PaintingBinding.instance.imageCache.maximumSizeBytes = 500 * 1024 * 1024;
   PaintingBinding.instance.imageCache.maximumSize = 3000;
-
   TaskManager().init();
   runApp(const GalleryApp());
 }
@@ -167,7 +164,11 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   List<dynamic> folders = [];
+  List<dynamic> videos = [];
   List<dynamic> images = [];
+
+  List<dynamic> get combinedMedia => [...videos, ...images];
+
   bool isLoading = true;
   String? errorMessage;
   final ScrollController _scrollController = ScrollController();
@@ -228,9 +229,8 @@ class _GalleryPageState extends State<GalleryPage> {
       if (mounted) {
         setState(() {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
-          images = rawList
-              .where((e) => e['type'] == 'image' || e['type'] == 'video')
-              .toList();
+          videos = rawList.where((e) => e['type'] == 'video').toList();
+          images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
         });
       }
@@ -254,12 +254,205 @@ class _GalleryPageState extends State<GalleryPage> {
       if (mounted) {
         setState(() {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
-          images = rawList
-              .where((e) => e['type'] == 'image' || e['type'] == 'video')
-              .toList();
+          videos = rawList.where((e) => e['type'] == 'video').toList();
+          images = rawList.where((e) => e['type'] == 'image').toList();
         });
       }
     } catch (_) {}
+  }
+
+  Widget _buildVideoGrid(int crossAxisCount) {
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount, // 使用与文件夹相同的列数 (手机上通常是3)
+          mainAxisSpacing: 4,
+          crossAxisSpacing: 4,
+          childAspectRatio: 16 / 9, // 固定 16:9 比例，高度较小
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final item = videos[index];
+          final path = item['path'];
+          final fileUrl = TaskManager().getImgUrl(path);
+
+          // 视频在 combinedMedia 中的索引就是 index (因为 videos 排在 images 前面)
+          final currentGlobalIndex = index;
+          final isSelected = selectedPaths.contains(path);
+
+          return GestureDetector(
+            onTap: () {
+              final isShiftPressed =
+                  HardwareKeyboard.instance.logicalKeysPressed.contains(
+                    LogicalKeyboardKey.shiftLeft,
+                  ) ||
+                  HardwareKeyboard.instance.logicalKeysPressed.contains(
+                    LogicalKeyboardKey.shiftRight,
+                  );
+              if (isSelectionMode || isShiftPressed) {
+                _handleTapSelection(currentGlobalIndex, path);
+              } else {
+                Navigator.push(
+                  context,
+                  CupertinoPageRoute(
+                    builder: (context) => VideoPlayerPage(url: fileUrl),
+                  ),
+                );
+              }
+            },
+            onSecondaryTap: () {
+              if (!isSelectionMode) {
+                setState(() {
+                  isSelectionMode = true;
+                  selectedPaths.add(path);
+                  _lastInteractionIndex = currentGlobalIndex;
+                });
+              }
+            },
+            onLongPress: () {
+              if (!isSelectionMode) {
+                setState(() {
+                  isSelectionMode = true;
+                  selectedPaths.add(path);
+                  _lastInteractionIndex = currentGlobalIndex;
+                });
+                HapticFeedback.mediumImpact();
+              }
+            },
+            child: Hero(
+              tag: isSelectionMode ? "no-hero-$path" : "video-$path",
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF2C2C2E), Color(0xFF1C1C1E)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // 装饰水印
+                          Positioned(
+                            right: -5,
+                            bottom: -5,
+                            child: Icon(
+                              Icons.videocam,
+                              size: 35,
+                              color: Colors.white.withOpacity(0.05),
+                            ),
+                          ),
+                          // 播放按钮 (小尺寸)
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black38,
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                size: 20,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                          // 文件名遮罩
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 30,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [Colors.black87, Colors.transparent],
+                                ),
+                              ),
+                            ),
+                          ),
+                          // 文件名
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            right: 4,
+                            child: Text(
+                              item['name'],
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // VIDEO 标识
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 3,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: const Text(
+                                "VIDEO",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isSelectionMode)
+                    Container(
+                      color: isSelected ? Colors.black45 : Colors.transparent,
+                      child: Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            color: isSelected
+                                ? Colors.tealAccent
+                                : Colors.white70,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (isSelectionMode && isSelected)
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.tealAccent, width: 2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }, childCount: videos.length),
+      ),
+    );
   }
 
   void _toggleSelectionMode() {
@@ -274,8 +467,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   void _selectAll() {
     setState(() {
-      selectedPaths = images.map((e) => e['path'] as String).toSet();
-      _lastInteractionIndex = images.length - 1;
+      selectedPaths = combinedMedia.map((e) => e['path'] as String).toSet();
+      _lastInteractionIndex = combinedMedia.length - 1;
     });
   }
 
@@ -310,8 +503,11 @@ class _GalleryPageState extends State<GalleryPage> {
   void _selectRange(int start, int end) {
     int lower = min(start, end);
     int upper = max(start, end);
+    final allMedia = combinedMedia;
     for (int i = lower; i <= upper; i++) {
-      selectedPaths.add(images[i]['path']);
+      if (i < allMedia.length) {
+        selectedPaths.add(allMedia[i]['path']);
+      }
     }
   }
 
@@ -349,7 +545,8 @@ class _GalleryPageState extends State<GalleryPage> {
         _dragLastIndex = hitIndex;
         _dragStartSelectedSnapshot = Set.from(selectedPaths);
 
-        final path = images[hitIndex]['path'];
+        final allMedia = combinedMedia;
+        final path = allMedia[hitIndex]['path'];
         _dragSelectTargetState = !selectedPaths.contains(path);
 
         _updateSelectionState(hitIndex, _dragSelectTargetState!);
@@ -403,25 +600,31 @@ class _GalleryPageState extends State<GalleryPage> {
   void _applyRangeSelection(int start, int end) {
     final lower = min(start, end);
     final upper = max(start, end);
+    final allMedia = combinedMedia;
     setState(() {
       selectedPaths = Set.from(_dragStartSelectedSnapshot);
       for (int i = lower; i <= upper; i++) {
-        final path = images[i]['path'];
-        if (_dragSelectTargetState == true) {
-          selectedPaths.add(path);
-        } else {
-          selectedPaths.remove(path);
+        if (i < allMedia.length) {
+          final path = allMedia[i]['path'];
+          if (_dragSelectTargetState == true) {
+            selectedPaths.add(path);
+          } else {
+            selectedPaths.remove(path);
+          }
         }
       }
     });
   }
 
   void _updateSelectionState(int index, bool select) {
-    final path = images[index]['path'];
-    if (select)
-      selectedPaths.add(path);
-    else
-      selectedPaths.remove(path);
+    final allMedia = combinedMedia;
+    if (index < allMedia.length) {
+      final path = allMedia[index]['path'];
+      if (select)
+        selectedPaths.add(path);
+      else
+        selectedPaths.remove(path);
+    }
   }
 
   void _handleAutoScroll(Offset position) {
@@ -476,7 +679,6 @@ class _GalleryPageState extends State<GalleryPage> {
         local.dy < size.height;
   }
 
-  // === 批量操作 ===
   Future<void> _rotateSelected(int angle) async {
     if (selectedPaths.isEmpty) return;
     try {
@@ -542,7 +744,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  // === 文件夹操作 ===
   void _showFolderMenu(dynamic folder) {
     showModalBottomSheet(
       context: context,
@@ -671,9 +872,6 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  // ==========================================
-  // 修改后：显示百分比 + 已处理/总数
-  // ==========================================
   void _showTaskList() {
     final now = DateTime.now();
     showDialog(
@@ -773,7 +971,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                             ),
                                       ),
                                       const SizedBox(height: 4),
-                                      // === 修改：显示格式为 50% (5/10) ===
                                       Text(
                                         isDone
                                             ? 'COMPLETED'
@@ -884,9 +1081,52 @@ class _GalleryPageState extends State<GalleryPage> {
     return gridHeight + _calculateSectionTitleHeight();
   }
 
-  double _calculateImagesSectionTitleHeight() {
-    if (images.isEmpty) return 0.0;
-    return _calculateSectionTitleHeight();
+  double _calculateMediaSectionHeight(List<dynamic> items, double screenWidth) {
+    if (items.isEmpty) return 0.0;
+
+    double targetRowHeight = 300.0;
+    if (screenWidth >= 600 && screenWidth < 1400) targetRowHeight = 360.0;
+
+    const double spacing = 4.0;
+    final double contentWidth = screenWidth - (spacing * 2);
+
+    double totalHeight = 0.0;
+
+    int rowStartImageIdx = 0;
+    double currentRowAspectSum = 0.0;
+
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      double w = (item['w'] as num?)?.toDouble() ?? 100;
+      double h = (item['h'] as num?)?.toDouble() ?? 100;
+      if (w <= 0 || h <= 0) {
+        w = 100;
+        h = 100;
+      }
+      double aspectRatio = w / h;
+
+      currentRowAspectSum += aspectRatio;
+      double totalGapWidth = (i - rowStartImageIdx + 1 - 1) * spacing;
+      double projectedHeight =
+          (contentWidth - totalGapWidth) / currentRowAspectSum;
+      bool isLast = i == items.length - 1;
+
+      if (projectedHeight <= targetRowHeight || isLast) {
+        double finalHeight = projectedHeight;
+        if (isLast && projectedHeight > targetRowHeight)
+          finalHeight = targetRowHeight;
+        else if (projectedHeight > targetRowHeight * 1.5)
+          finalHeight = targetRowHeight;
+
+        totalHeight += (finalHeight + spacing);
+
+        if (!isLast) {
+          rowStartImageIdx = i + 1;
+          currentRowAspectSum = 0.0;
+        }
+      }
+    }
+    return totalHeight + _calculateSectionTitleHeight();
   }
 
   void _scrollToImage(int targetIndex, {bool smartScroll = false}) {
@@ -904,14 +1144,19 @@ class _GalleryPageState extends State<GalleryPage> {
     else
       crossAxisCount = 8;
 
-    double currentOffset =
-        _calculateFoldersSectionHeight(crossAxisCount) +
-        _calculateImagesSectionTitleHeight();
+    double currentOffset = _calculateFoldersSectionHeight(crossAxisCount);
+
+    if (videos.isNotEmpty) {
+      currentOffset += _calculateMediaSectionHeight(videos, screenWidth);
+    }
+
+    if (images.isNotEmpty) {
+      currentOffset += _calculateSectionTitleHeight();
+    }
 
     double targetRowHeight = 300.0;
-    if (screenWidth >= 600 && screenWidth < 1400) {
-      targetRowHeight = 360.0;
-    }
+    if (screenWidth >= 600 && screenWidth < 1400) targetRowHeight = 360.0;
+
     const double spacing = 4.0;
     final double contentWidth = screenWidth - (spacing * 2);
 
@@ -939,11 +1184,10 @@ class _GalleryPageState extends State<GalleryPage> {
 
       if (projectedHeight <= targetRowHeight || isLast) {
         double finalHeight = projectedHeight;
-        if (isLast && projectedHeight > targetRowHeight) {
+        if (isLast && projectedHeight > targetRowHeight)
           finalHeight = targetRowHeight;
-        } else if (projectedHeight > targetRowHeight * 1.5) {
+        else if (projectedHeight > targetRowHeight * 1.5)
           finalHeight = targetRowHeight;
-        }
 
         rowHeights.add(finalHeight + spacing);
 
@@ -1041,17 +1285,21 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
-    int folderCrossAxisCount;
+    int crossAxisCount;
     if (screenWidth < 600)
-      folderCrossAxisCount = 3;
+      crossAxisCount = 3; // 手机上 3 列
     else if (screenWidth < 950)
-      folderCrossAxisCount = 4;
+      crossAxisCount = 4;
     else if (screenWidth < 1400)
-      folderCrossAxisCount = 6;
+      crossAxisCount = 6;
     else
-      folderCrossAxisCount = 8;
+      crossAxisCount = 8;
 
-    final List<Widget> justifiedRows = _computeJustifiedRows(screenWidth);
+    final List<Widget> imageRows = _computeJustifiedRows(
+      screenWidth,
+      images,
+      globalStartIndex: videos.length,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -1115,26 +1363,34 @@ class _GalleryPageState extends State<GalleryPage> {
               )
             : CustomScrollView(
                 controller: _scrollController,
-                cacheExtent: 2000.0, // 增大预加载范围，减少滑动白块
+                cacheExtent: 2000.0,
                 physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
+                  // 1. FOLDERS
                   if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
-                  if (folders.isNotEmpty)
-                    _buildFolderGrid(folderCrossAxisCount),
+                  if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
+
+                  // 2. VIDEOS (使用新的 Grid 方法)
+                  if (videos.isNotEmpty)
+                    _buildSectionTitle("VIDEOS (${videos.length})"),
+                  if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
+
+                  // 3. IMAGES (保持瀑布流)
                   if (images.isNotEmpty)
-                    _buildSectionTitle("MEDIA (${images.length})"),
+                    _buildSectionTitle("IMAGES (${images.length})"),
                   if (images.isNotEmpty)
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
-                          (context, index) => justifiedRows[index],
-                          childCount: justifiedRows.length,
+                          (context, index) => imageRows[index],
+                          childCount: imageRows.length,
                         ),
                       ),
                     ),
+
                   const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 ],
               ),
@@ -1195,8 +1451,13 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  List<Widget> _computeJustifiedRows(double screenWidth) {
-    if (images.isEmpty) return [];
+  // 修改：接受具体的 items 列表和全局起始索引
+  List<Widget> _computeJustifiedRows(
+    double screenWidth,
+    List<dynamic> items, {
+    required int globalStartIndex,
+  }) {
+    if (items.isEmpty) return [];
 
     double targetRowHeight = 300.0;
     if (screenWidth >= 600 && screenWidth < 1400) {
@@ -1206,11 +1467,13 @@ class _GalleryPageState extends State<GalleryPage> {
     const double spacing = 4.0;
     final double contentWidth = screenWidth - (spacing * 2);
     List<Widget> rows = [];
-    List<dynamic> currentRowImages = [];
+    List<dynamic> currentRowItems = [];
+    // 记录这一行在局部列表中的起始索引，用于构建 Row 时传递正确的 index
+    int currentRowStartLocalIndex = 0;
     double currentRowAspectRatioSum = 0.0;
 
-    for (int i = 0; i < images.length; i++) {
-      final item = images[i];
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
       double w = (item['w'] as num?)?.toDouble() ?? 100;
       double h = (item['h'] as num?)?.toDouble() ?? 100;
       if (w <= 0 || h <= 0) {
@@ -1219,16 +1482,16 @@ class _GalleryPageState extends State<GalleryPage> {
       }
       double aspectRatio = w / h;
 
-      currentRowImages.add(item);
+      currentRowItems.add(item);
       currentRowAspectRatioSum += aspectRatio;
 
-      double totalGapWidth = (currentRowImages.length - 1) * spacing;
+      double totalGapWidth = (currentRowItems.length - 1) * spacing;
 
       double projectedHeight =
           (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
 
-      if (projectedHeight <= targetRowHeight || i == images.length - 1) {
-        bool isLastRow = i == images.length - 1;
+      if (projectedHeight <= targetRowHeight || i == items.length - 1) {
+        bool isLastRow = i == items.length - 1;
 
         if (isLastRow && projectedHeight > targetRowHeight) {
           projectedHeight = targetRowHeight;
@@ -1238,14 +1501,19 @@ class _GalleryPageState extends State<GalleryPage> {
 
         rows.add(
           _buildJustifiedRow(
-            currentRowImages,
+            currentRowItems,
             projectedHeight,
             spacing,
             isLastRow: isLastRow,
+            // 传递当前行第一个元素在 local list 中的 index，以及 global offset
+            localStartIndex: currentRowStartLocalIndex,
+            globalStartIndex: globalStartIndex,
           ),
         );
-        currentRowImages = [];
+
+        currentRowItems = [];
         currentRowAspectRatioSum = 0.0;
+        currentRowStartLocalIndex = i + 1;
       }
     }
     return rows;
@@ -1256,6 +1524,8 @@ class _GalleryPageState extends State<GalleryPage> {
     double height,
     double spacing, {
     required bool isLastRow,
+    required int localStartIndex, // 这一行第一个元素在 items 中的索引
+    required int globalStartIndex, // items 列表在 combinedMedia 中的起始索引
   }) {
     List<Widget> children = [];
     for (int i = 0; i < rowItems.length; i++) {
@@ -1271,12 +1541,15 @@ class _GalleryPageState extends State<GalleryPage> {
 
       double itemWidth = height * (w / h);
 
-      int globalIndex = images.indexOf(item);
+      // 计算用于交互的全局索引 (combinedMedia 中的索引)
+      int currentLocalIndex = localStartIndex + i;
+      int currentGlobalIndex = globalStartIndex + currentLocalIndex;
+
       bool isSelected = selectedPaths.contains(path);
 
       children.add(
         MetaData(
-          metaData: globalIndex,
+          metaData: currentGlobalIndex,
           behavior: HitTestBehavior.opaque,
           child: SizedBox(
             width: itemWidth,
@@ -1291,10 +1564,9 @@ class _GalleryPageState extends State<GalleryPage> {
                       LogicalKeyboardKey.shiftRight,
                     );
                 if (isSelectionMode || isShiftPressed) {
-                  _handleTapSelection(globalIndex, path);
+                  _handleTapSelection(currentGlobalIndex, path);
                 } else {
                   if (isVideo) {
-                    // === 视频逻辑：直接跳转全屏播放 ===
                     Navigator.push(
                       context,
                       CupertinoPageRoute(
@@ -1302,11 +1574,11 @@ class _GalleryPageState extends State<GalleryPage> {
                       ),
                     );
                   } else {
-                    // === 图片逻辑：进入画廊预览 ===
+                    int imageIndex = currentLocalIndex; // 在 images 列表中的索引
                     setState(() {
-                      _lastInteractionIndex = globalIndex;
+                      _lastInteractionIndex = currentGlobalIndex;
                     });
-                    _openPreview(globalIndex);
+                    _openPreview(imageIndex);
                   }
                 }
               },
@@ -1315,7 +1587,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   setState(() {
                     isSelectionMode = true;
                     selectedPaths.add(path);
-                    _lastInteractionIndex = globalIndex;
+                    _lastInteractionIndex = currentGlobalIndex;
                   });
                 }
               },
@@ -1324,7 +1596,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   setState(() {
                     isSelectionMode = true;
                     selectedPaths.add(path);
-                    _lastInteractionIndex = globalIndex;
+                    _lastInteractionIndex = currentGlobalIndex;
                   });
                   HapticFeedback.mediumImpact();
                 }
@@ -1341,33 +1613,108 @@ class _GalleryPageState extends State<GalleryPage> {
                         color: const Color(0xFF202023),
                         width: double.infinity,
                         height: double.infinity,
+
+                        // ... 在 _buildJustifiedRow 方法内部 ...
                         child: isVideo
                             ? Stack(
                                 alignment: Alignment.center,
                                 children: [
-                                  Container(color: Colors.black54),
-                                  const Icon(
-                                    Icons.play_circle_outline,
-                                    size: 48,
-                                    color: Colors.white70,
+                                  // 1. 背景：保持深色渐变
+                                  Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Color(0xFF2C2C2E),
+                                          Color(0xFF1C1C1E),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                    ),
                                   ),
+
+                                  // 2. 装饰水印：缩小尺寸 (80 -> 35)
+                                  Positioned(
+                                    right: -5,
+                                    bottom: -5,
+                                    child: Icon(
+                                      Icons.videocam,
+                                      size: 35, // 缩小到原来的 1/3 左右
+                                      color: Colors.white.withOpacity(0.05),
+                                    ),
+                                  ),
+
+                                  // 3. 播放按钮：大幅缩小 (36 -> 20)，去掉复杂的阴影，保持简洁
+                                  Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4), // 减小内边距
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.black38, // 简单的半透明底
+                                      ),
+                                      child: const Icon(
+                                        Icons.play_arrow, // 改用简单的箭头图标
+                                        size: 20, // 尺寸缩小
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ),
+
+                                  // 4. 文件名遮罩
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    height: 30, // 高度减小
+                                    child: Container(
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            Colors.black87,
+                                            Colors.transparent,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // 5. 文件名显示 (字体调小 11 -> 9)
                                   Positioned(
                                     bottom: 4,
                                     left: 4,
+                                    right: 4,
+                                    child: Text(
+                                      item['name'],
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9, // 字体缩小
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+
+                                  // 6. VIDEO 标识 (缩小并移到更角落)
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 2,
+                                        horizontal: 3,
+                                        vertical: 1,
                                       ),
                                       decoration: BoxDecoration(
                                         color: Colors.black54,
-                                        borderRadius: BorderRadius.circular(4),
+                                        borderRadius: BorderRadius.circular(2),
                                       ),
                                       child: const Text(
                                         "VIDEO",
                                         style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
+                                          color: Colors.white70,
+                                          fontSize: 7, // 字体极小化
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -1376,10 +1723,11 @@ class _GalleryPageState extends State<GalleryPage> {
                                 ],
                               )
                             : CachedNetworkImage(
+                                // ... 图片逻辑保持不变 ...
                                 imageUrl: fileUrl,
-                                memCacheHeight: 1000, // 限制缩略图内存
+                                memCacheHeight: 1000,
                                 fit: BoxFit.cover,
-                                fadeInDuration: Duration.zero, // 去除淡入动画
+                                fadeInDuration: Duration.zero,
                                 fadeOutDuration: Duration.zero,
                                 placeholderFadeInDuration: Duration.zero,
                                 placeholder: (context, url) =>
@@ -1574,9 +1922,6 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 }
 
-// ------------------------------------------------------------------
-// 视频播放器封装组件 (带简单的 AutoPlay)
-// ------------------------------------------------------------------
 class SimpleVideoPlayer extends StatefulWidget {
   final String url;
   final VoidCallback? onTap;
@@ -1677,9 +2022,6 @@ class _SimpleVideoPlayerState extends State<SimpleVideoPlayer> {
   }
 }
 
-// ------------------------------------------------------------------
-// 全屏视频播放页 (无预览模式)
-// ------------------------------------------------------------------
 class VideoPlayerPage extends StatelessWidget {
   final String url;
 
@@ -1706,9 +2048,6 @@ class VideoPlayerPage extends StatelessWidget {
   }
 }
 
-// ------------------------------------------------------------------
-// 图片预览页 (保持原样，只处理图片)
-// ------------------------------------------------------------------
 class PhotoPreviewPage extends StatefulWidget {
   final List<dynamic> images;
   final int initialIndex;
@@ -1740,12 +2079,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   @override
   void initState() {
     super.initState();
-    // 默认进入沉浸模式
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
-
-    // 初始化时只筛选出图片用于预览 (防止视频混入滑动列表)
-    // 但根据需求，如果用户希望点击视频就去全屏，这里就不需要太担心列表混杂问题
-    // 不过为了逻辑闭环，建议预览页的数据源和列表保持一致，只是点击入口不同
     _currentImages = List.from(widget.images);
     currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
@@ -1973,7 +2307,6 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         builder: (BuildContext context, int index) {
                           final item = _currentImages[index];
                           final imgUrl = TaskManager().getImgUrl(item['path']);
-                          // 只有图片会进入这里，所以放心使用图片 Provider
                           return PhotoViewGalleryPageOptions(
                             imageProvider: CachedNetworkImageProvider(imgUrl),
                             initialScale: PhotoViewComputedScale.contained,
