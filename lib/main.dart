@@ -1121,6 +1121,7 @@ class _GalleryPageState extends State<GalleryPage> {
               )
             : CustomScrollView(
                 controller: _scrollController,
+                cacheExtent: 2000.0,
                 physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
@@ -1336,6 +1337,9 @@ class _GalleryPageState extends State<GalleryPage> {
                           imageUrl: imgUrl,
                           memCacheHeight: 1000,
                           fit: BoxFit.cover,
+                          fadeInDuration: Duration.zero, // 设置为0，禁止淡入
+                          fadeOutDuration: Duration.zero, // 设置为0，禁止淡出
+                          placeholderFadeInDuration: Duration.zero, // 禁止占位图动画
                           placeholder: (context, url) =>
                               Container(color: const Color(0xFF202023)),
                           errorWidget: (context, url, error) => const Center(
