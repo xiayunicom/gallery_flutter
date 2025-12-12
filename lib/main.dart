@@ -14,7 +14,8 @@ import 'package:flutter_client_sse/flutter_client_sse.dart';
 import 'package:flutter_client_sse/constants/sse_request_type_enum.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:flutter/gestures.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 // ==========================================
 // CONFIG: 你的 Mac/PC 局域网 IP
@@ -117,6 +118,7 @@ class TaskManager {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   PaintingBinding.instance.imageCache.maximumSizeBytes = 500 * 1024 * 1024;
   PaintingBinding.instance.imageCache.maximumSize = 3000;
   TaskManager().init();
@@ -131,6 +133,10 @@ class GalleryApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Gallery Pro',
+      shortcuts: {
+        LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
+      },
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F12),
         appBarTheme: const AppBarTheme(
@@ -150,6 +156,72 @@ class GalleryApp extends StatelessWidget {
         ),
       ),
       home: const GalleryPage(path: ""),
+    );
+  }
+}
+
+// ==========================================
+// TV 遥控器焦点包装器
+// ==========================================
+class TVFocusableWidget extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onSecondaryTap;
+  final bool isSelected;
+  final double borderRadius;
+
+  const TVFocusableWidget({
+    super.key,
+    required this.child,
+    required this.onTap,
+    this.onLongPress,
+    this.onSecondaryTap,
+    this.isSelected = false,
+    this.borderRadius = 4.0,
+  });
+
+  @override
+  State<TVFocusableWidget> createState() => _TVFocusableWidgetState();
+}
+
+class _TVFocusableWidgetState extends State<TVFocusableWidget> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      onSecondaryTap: widget.onSecondaryTap,
+      onFocusChange: (value) {
+        setState(() {
+          _isFocused = value;
+        });
+      },
+      borderRadius: BorderRadius.circular(widget.borderRadius),
+      focusColor: Colors.white.withOpacity(0.1),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(widget.borderRadius),
+          border: _isFocused
+              ? Border.all(color: Colors.white, width: 3)
+              : (widget.isSelected
+                    ? Border.all(color: Colors.tealAccent, width: 3)
+                    : Border.all(color: Colors.transparent, width: 0)),
+          boxShadow: _isFocused
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                ]
+              : null,
+        ),
+        child: widget.child,
+      ),
     );
   }
 }
@@ -261,26 +333,46 @@ class _GalleryPageState extends State<GalleryPage> {
     } catch (_) {}
   }
 
+  // =========================================================
+  // 新增 helper: 智能解析封面/缩略图 URL
+  // =========================================================
+  String _getThumbUrl(dynamic item) {
+    final String? coverPath = item['cover_path'];
+    if (coverPath == null || coverPath.isEmpty) return "";
+
+    // 如果是以 /api/ 开头，说明是后端生成的视频缩略图 API，直接拼 serverUrl
+    if (coverPath.startsWith('/api/')) {
+      return "$serverUrl$coverPath";
+    }
+    // 否则是普通文件路径（如文件夹封面），走 getImgUrl 处理
+    return TaskManager().getImgUrl(coverPath);
+  }
+
+  // =========================================================
+  // 修改：_buildVideoGrid 使用图片作为背景
+  // =========================================================
   Widget _buildVideoGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       sliver: SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount, // 使用与文件夹相同的列数 (手机上通常是3)
+          crossAxisCount: crossAxisCount,
           mainAxisSpacing: 4,
           crossAxisSpacing: 4,
-          childAspectRatio: 16 / 9, // 固定 16:9 比例，高度较小
+          childAspectRatio: 16 / 9,
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
           final item = videos[index];
           final path = item['path'];
           final fileUrl = TaskManager().getImgUrl(path);
-
-          // 视频在 combinedMedia 中的索引就是 index (因为 videos 排在 images 前面)
           final currentGlobalIndex = index;
           final isSelected = selectedPaths.contains(path);
 
-          return GestureDetector(
+          // 获取缩略图 URL
+          final thumbUrl = _getThumbUrl(item);
+
+          return TVFocusableWidget(
+            isSelected: isSelected,
             onTap: () {
               final isShiftPressed =
                   HardwareKeyboard.instance.logicalKeysPressed.contains(
@@ -322,95 +414,155 @@ class _GalleryPageState extends State<GalleryPage> {
             child: Hero(
               tag: isSelectionMode ? "no-hero-$path" : "video-$path",
               child: Stack(
+                fit: StackFit.expand, // 确保子元素填满
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: Container(
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF2C2C2E), Color(0xFF1C1C1E)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
+                        color: Color(0xFF202023), // 加载前的底色
                       ),
                       child: Stack(
                         alignment: Alignment.center,
+                        fit: StackFit.expand,
                         children: [
-                          // 装饰水印
+                          // 1. 缩略图层 (替换了原来的纯 Gradient)
+                          if (thumbUrl.isNotEmpty)
+                            CachedNetworkImage(
+                              imageUrl: thumbUrl,
+                              fit: BoxFit.cover,
+                              memCacheHeight: 400, // 内存优化
+                              placeholder: (context, url) => Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Color(0xFF2C2C2E),
+                                      Color(0xFF1C1C1E),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Color(0xFF2C2C2E),
+                                      Color(0xFF1C1C1E),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.videocam_off,
+                                    color: Colors.white12,
+                                    size: 30,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            // 无缩略图时的兜底背景
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFF2C2C2E),
+                                    Color(0xFF1C1C1E),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                            ),
+
+                          // 2. 黑色遮罩 (让文字和图标在任何图片上都可见)
+                          Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black54, // 底部渐变黑
+                                ],
+                                stops: [0.6, 1.0],
+                              ),
+                            ),
+                          ),
+
+                          // 3. 装饰水印 (半透明大图标)
                           Positioned(
                             right: -5,
                             bottom: -5,
                             child: Icon(
                               Icons.videocam,
                               size: 35,
-                              color: Colors.white.withOpacity(0.05),
+                              color: Colors.white.withOpacity(0.1), // 稍微调亮一点点
                             ),
                           ),
-                          // 播放按钮 (小尺寸)
+
+                          // 4. 播放按钮
                           Center(
                             child: Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(6),
                               decoration: const BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Colors.black38,
+                                color: Colors.black54, // 加深背景让它更明显
                               ),
                               child: const Icon(
                                 Icons.play_arrow,
-                                size: 20,
-                                color: Colors.white70,
+                                size: 24,
+                                color: Colors.white,
                               ),
                             ),
                           ),
-                          // 文件名遮罩
+
+                          // 5. 文件名
                           Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: 30,
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [Colors.black87, Colors.transparent],
-                                ),
-                              ),
-                            ),
-                          ),
-                          // 文件名
-                          Positioned(
-                            bottom: 4,
-                            left: 4,
-                            right: 4,
+                            bottom: 6,
+                            left: 6,
+                            right: 6,
                             child: Text(
                               item['name'],
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w400,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                                shadows: [
+                                  Shadow(
+                                    blurRadius: 2,
+                                    color: Colors.black,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ],
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          // VIDEO 标识
+
+                          // 6. VIDEO 标识
                           Positioned(
                             top: 4,
                             right: 4,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 3,
-                                vertical: 1,
+                                horizontal: 4,
+                                vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.black54,
+                                color: Colors.black87,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                               child: const Text(
                                 "VIDEO",
                                 style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 7,
+                                  color: Colors.white,
+                                  fontSize: 8,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -437,13 +589,6 @@ class _GalleryPageState extends State<GalleryPage> {
                             size: 20,
                           ),
                         ),
-                      ),
-                    ),
-                  if (isSelectionMode && isSelected)
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.tealAccent, width: 2),
-                        borderRadius: BorderRadius.circular(4),
                       ),
                     ),
                 ],
@@ -620,10 +765,11 @@ class _GalleryPageState extends State<GalleryPage> {
     final allMedia = combinedMedia;
     if (index < allMedia.length) {
       final path = allMedia[index]['path'];
-      if (select)
+      if (select) {
         selectedPaths.add(path);
-      else
+      } else {
         selectedPaths.remove(path);
+      }
     }
   }
 
@@ -659,8 +805,9 @@ class _GalleryPageState extends State<GalleryPage> {
         }
         final newOffset = _scrollController.offset + velocity;
         if (newOffset < 0 ||
-            newOffset > _scrollController.position.maxScrollExtent)
+            newOffset > _scrollController.position.maxScrollExtent) {
           return;
+        }
         _scrollController.jumpTo(newOffset);
       });
     } else {
@@ -1021,8 +1168,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildBreadcrumbs() {
-    if (widget.path.isEmpty)
+    if (widget.path.isEmpty) {
       return const Text("Home", style: TextStyle(fontWeight: FontWeight.bold));
+    }
     List<String> parts = widget.path
         .split('/')
         .where((p) => p.isNotEmpty)
@@ -1287,7 +1435,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final double screenWidth = MediaQuery.of(context).size.width;
     int crossAxisCount;
     if (screenWidth < 600)
-      crossAxisCount = 3; // 手机上 3 列
+      crossAxisCount = 3;
     else if (screenWidth < 950)
       crossAxisCount = 4;
     else if (screenWidth < 1400)
@@ -1372,12 +1520,12 @@ class _GalleryPageState extends State<GalleryPage> {
                   if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
                   if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
 
-                  // 2. VIDEOS (使用新的 Grid 方法)
+                  // 2. VIDEOS
                   if (videos.isNotEmpty)
                     _buildSectionTitle("VIDEOS (${videos.length})"),
                   if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
 
-                  // 3. IMAGES (保持瀑布流)
+                  // 3. IMAGES
                   if (images.isNotEmpty)
                     _buildSectionTitle("IMAGES (${images.length})"),
                   if (images.isNotEmpty)
@@ -1519,6 +1667,9 @@ class _GalleryPageState extends State<GalleryPage> {
     return rows;
   }
 
+  // =========================================================
+  // 修改：_buildJustifiedRow 也需要适配视频封面逻辑
+  // =========================================================
   Widget _buildJustifiedRow(
     List<dynamic> rowItems,
     double height,
@@ -1533,6 +1684,7 @@ class _GalleryPageState extends State<GalleryPage> {
       final path = item['path'];
       final fileUrl = TaskManager().getImgUrl(path);
       final isVideo = item['type'] == 'video';
+      final thumbUrl = _getThumbUrl(item); // 获取缩略图
 
       double w = (item['w'] as num?)?.toDouble() ?? 100;
       double h = (item['h'] as num?)?.toDouble() ?? 100;
@@ -1554,7 +1706,8 @@ class _GalleryPageState extends State<GalleryPage> {
           child: SizedBox(
             width: itemWidth,
             height: height,
-            child: GestureDetector(
+            child: TVFocusableWidget(
+              isSelected: isSelected,
               onTap: () {
                 final isShiftPressed =
                     HardwareKeyboard.instance.logicalKeysPressed.contains(
@@ -1606,6 +1759,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     ? "no-hero-$path"
                     : (isVideo ? "video-$path" : fileUrl),
                 child: Stack(
+                  fit: StackFit.expand,
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
@@ -1613,74 +1767,79 @@ class _GalleryPageState extends State<GalleryPage> {
                         color: const Color(0xFF202023),
                         width: double.infinity,
                         height: double.infinity,
-
-                        // ... 在 _buildJustifiedRow 方法内部 ...
                         child: isVideo
                             ? Stack(
                                 alignment: Alignment.center,
+                                fit: StackFit.expand,
                                 children: [
-                                  // 1. 背景：保持深色渐变
+                                  // 1. 视频缩略图 (如果有)
+                                  if (thumbUrl.isNotEmpty)
+                                    CachedNetworkImage(
+                                      imageUrl: thumbUrl,
+                                      fit: BoxFit.cover,
+                                      memCacheHeight: 400,
+                                      placeholder: (context, url) => Container(
+                                        color: const Color(0xFF202023),
+                                      ),
+                                    )
+                                  else
+                                    // 兜底背景
+                                    Container(
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Color(0xFF2C2C2E),
+                                            Color(0xFF1C1C1E),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                      ),
+                                    ),
+
+                                  // 2. 黑色遮罩
                                   Container(
                                     decoration: const BoxDecoration(
                                       gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
                                         colors: [
-                                          Color(0xFF2C2C2E),
-                                          Color(0xFF1C1C1E),
+                                          Colors.transparent,
+                                          Colors.black54,
                                         ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
+                                        stops: [0.6, 1.0],
                                       ),
                                     ),
                                   ),
 
-                                  // 2. 装饰水印：缩小尺寸 (80 -> 35)
+                                  // 3. 装饰水印
                                   Positioned(
                                     right: -5,
                                     bottom: -5,
                                     child: Icon(
                                       Icons.videocam,
-                                      size: 35, // 缩小到原来的 1/3 左右
-                                      color: Colors.white.withOpacity(0.05),
+                                      size: 35,
+                                      color: Colors.white.withOpacity(0.1),
                                     ),
                                   ),
 
-                                  // 3. 播放按钮：大幅缩小 (36 -> 20)，去掉复杂的阴影，保持简洁
+                                  // 4. 播放按钮
                                   Center(
                                     child: Container(
-                                      padding: const EdgeInsets.all(4), // 减小内边距
-                                      decoration: BoxDecoration(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: const BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color: Colors.black38, // 简单的半透明底
+                                        color: Colors.black54,
                                       ),
                                       child: const Icon(
-                                        Icons.play_arrow, // 改用简单的箭头图标
-                                        size: 20, // 尺寸缩小
-                                        color: Colors.white70,
+                                        Icons.play_arrow,
+                                        size: 20,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
 
-                                  // 4. 文件名遮罩
-                                  Positioned(
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    height: 30, // 高度减小
-                                    child: Container(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.bottomCenter,
-                                          end: Alignment.topCenter,
-                                          colors: [
-                                            Colors.black87,
-                                            Colors.transparent,
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  // 5. 文件名显示 (字体调小 11 -> 9)
+                                  // 5. 文件名
                                   Positioned(
                                     bottom: 4,
                                     left: 4,
@@ -1689,7 +1848,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                       item['name'],
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontSize: 9, // 字体缩小
+                                        fontSize: 9,
                                         fontWeight: FontWeight.w400,
                                       ),
                                       maxLines: 1,
@@ -1697,7 +1856,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                     ),
                                   ),
 
-                                  // 6. VIDEO 标识 (缩小并移到更角落)
+                                  // 6. VIDEO 标识
                                   Positioned(
                                     top: 4,
                                     right: 4,
@@ -1707,14 +1866,14 @@ class _GalleryPageState extends State<GalleryPage> {
                                         vertical: 1,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.black54,
+                                        color: Colors.black87,
                                         borderRadius: BorderRadius.circular(2),
                                       ),
                                       child: const Text(
                                         "VIDEO",
                                         style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 7, // 字体极小化
+                                          color: Colors.white,
+                                          fontSize: 7,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -1723,7 +1882,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                 ],
                               )
                             : CachedNetworkImage(
-                                // ... 图片逻辑保持不变 ...
                                 imageUrl: fileUrl,
                                 memCacheHeight: 1000,
                                 fit: BoxFit.cover,
@@ -1759,16 +1917,6 @@ class _GalleryPageState extends State<GalleryPage> {
                               size: 28,
                             ),
                           ),
-                        ),
-                      ),
-                    if (isSelectionMode && isSelected)
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.tealAccent,
-                            width: 3,
-                          ),
-                          borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                   ],
@@ -1807,6 +1955,7 @@ class _GalleryPageState extends State<GalleryPage> {
       ),
     ),
   );
+
   Widget _buildFolderGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1819,10 +1968,12 @@ class _GalleryPageState extends State<GalleryPage> {
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
           final item = folders[index];
+          // 文件夹的 cover_path 一定是文件路径，直接用 getImgUrl
           final String? coverPath = item['cover_path'];
           final hasCover = coverPath != null && coverPath.isNotEmpty;
           final coverUrl = hasCover ? TaskManager().getImgUrl(coverPath) : "";
-          return GestureDetector(
+
+          return TVFocusableWidget(
             onTap: () {
               if (isSelectionMode) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1922,100 +2073,51 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 }
 
+// ------------------------------------------------------------------
+// 视频播放器封装组件
+// ------------------------------------------------------------------
 class SimpleVideoPlayer extends StatefulWidget {
   final String url;
-  final VoidCallback? onTap;
   final bool autoPlay;
 
-  const SimpleVideoPlayer({
-    super.key,
-    required this.url,
-    this.onTap,
-    this.autoPlay = true,
-  });
+  const SimpleVideoPlayer({super.key, required this.url, this.autoPlay = true});
 
   @override
   State<SimpleVideoPlayer> createState() => _SimpleVideoPlayerState();
 }
 
 class _SimpleVideoPlayerState extends State<SimpleVideoPlayer> {
-  late VideoPlayerController _controller;
-  bool _initialized = false;
-  bool _hasError = false;
+  late final Player player = Player();
+  late final VideoController controller = VideoController(player);
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize()
-          .then((_) {
-            if (mounted) {
-              setState(() {
-                _initialized = true;
-              });
-              if (widget.autoPlay) {
-                _controller.play();
-              }
-              _controller.setLooping(true);
-            }
-          })
-          .catchError((e) {
-            if (mounted) setState(() => _hasError = true);
-          });
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    await player.open(Media(widget.url), play: widget.autoPlay);
+    await player.setPlaylistMode(PlaylistMode.loop);
+    await player.setVolume(100);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_hasError) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error, color: Colors.red, size: 40),
-            Text("Playback Error", style: TextStyle(color: Colors.white)),
-          ],
-        ),
-      );
-    }
-    if (!_initialized) {
-      return const Center(child: CircularProgressIndicator(color: Colors.teal));
-    }
     return Center(
-      child: AspectRatio(
-        aspectRatio: _controller.value.aspectRatio,
-        child: GestureDetector(
-          onTap: () {
-            if (widget.onTap != null) {
-              widget.onTap!();
-            } else {
-              _controller.value.isPlaying
-                  ? _controller.pause()
-                  : _controller.play();
-            }
-          },
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              VideoPlayer(_controller),
-              if (!_controller.value.isPlaying)
-                Container(
-                  color: Colors.black26,
-                  child: const Center(
-                    child: Icon(
-                      Icons.play_arrow,
-                      size: 60,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+      child: SizedBox(
+        width: MediaQuery.of(context).size.width,
+        height: MediaQuery.of(context).size.height,
+        child: Video(
+          controller: controller,
+          fit: BoxFit.contain,
+          controls: MaterialVideoControls,
         ),
       ),
     );
@@ -2033,13 +2135,25 @@ class VideoPlayerPage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Center(child: SimpleVideoPlayer(url: url, autoPlay: true)),
+          SimpleVideoPlayer(url: url, autoPlay: true),
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 16,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 30),
-              onPressed: () => Navigator.of(context).pop(),
+            child: SafeArea(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
             ),
           ),
         ],
@@ -2272,9 +2386,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: Colors.transparent, // Android
-        statusBarIconBrightness: Brightness.light, // Android Icons
-        statusBarBrightness: Brightness.dark, // iOS White Text
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
       ),
       child: Focus(
         autofocus: true,
@@ -2346,6 +2460,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                   opacity: bgOpacity,
                   child: Stack(
                     children: [
+                      // Top Bar
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 250),
                         curve: Curves.easeInOutQuart,
@@ -2489,49 +2604,59 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         ),
                       ),
                       if (!isMobile) ...[
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeInOut,
-                          left: showControls ? 10 : -50,
-                          top: 0,
-                          bottom: 0,
-                          child: AnimatedOpacity(
+                        // 左箭头
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedSlide(
+                            offset: showControls
+                                ? Offset.zero
+                                : const Offset(-1.2, 0),
                             duration: const Duration(milliseconds: 250),
-                            opacity: showControls ? 1.0 : 0.0,
-                            child: Center(
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.arrow_back_ios,
-                                  color: Colors.white24,
-                                  size: 30,
-                                ),
-                                onPressed: () => _pageController.previousPage(
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.ease,
+                            curve: Curves.easeInOut,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 250),
+                              opacity: showControls ? 1.0 : 0.0,
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 10),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.arrow_back_ios,
+                                    color: Colors.white24,
+                                    size: 30,
+                                  ),
+                                  onPressed: () => _pageController.previousPage(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.ease,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeInOut,
-                          right: showControls ? 10 : -50,
-                          top: 0,
-                          bottom: 0,
-                          child: AnimatedOpacity(
+                        // 右箭头
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: AnimatedSlide(
+                            offset: showControls
+                                ? Offset.zero
+                                : const Offset(1.2, 0),
                             duration: const Duration(milliseconds: 250),
-                            opacity: showControls ? 1.0 : 0.0,
-                            child: Center(
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.arrow_forward_ios,
-                                  color: Colors.white24,
-                                  size: 30,
-                                ),
-                                onPressed: () => _pageController.nextPage(
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.ease,
+                            curve: Curves.easeInOut,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 250),
+                              opacity: showControls ? 1.0 : 0.0,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 10),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.arrow_forward_ios,
+                                    color: Colors.white24,
+                                    size: 30,
+                                  ),
+                                  onPressed: () => _pageController.nextPage(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.ease,
+                                  ),
                                 ),
                               ),
                             ),
