@@ -14,7 +14,8 @@ import 'package:flutter_client_sse/flutter_client_sse.dart';
 import 'package:flutter_client_sse/constants/sse_request_type_enum.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:flutter/gestures.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 // ==========================================
 // CONFIG: 你的 Mac/PC 局域网 IP
@@ -117,6 +118,7 @@ class TaskManager {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   PaintingBinding.instance.imageCache.maximumSizeBytes = 500 * 1024 * 1024;
   PaintingBinding.instance.imageCache.maximumSize = 3000;
   TaskManager().init();
@@ -1922,106 +1924,68 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 }
 
+// ------------------------------------------------------------------
+// 视频播放器封装组件 (使用 MediaKit 内置专业控件)
+// ------------------------------------------------------------------
 class SimpleVideoPlayer extends StatefulWidget {
   final String url;
-  final VoidCallback? onTap;
   final bool autoPlay;
 
-  const SimpleVideoPlayer({
-    super.key,
-    required this.url,
-    this.onTap,
-    this.autoPlay = true,
-  });
+  const SimpleVideoPlayer({super.key, required this.url, this.autoPlay = true});
 
   @override
   State<SimpleVideoPlayer> createState() => _SimpleVideoPlayerState();
 }
 
 class _SimpleVideoPlayerState extends State<SimpleVideoPlayer> {
-  late VideoPlayerController _controller;
-  bool _initialized = false;
-  bool _hasError = false;
+  // Create a [Player] to control playback.
+  late final Player player = Player();
+  // Create a [VideoController] to handle video output from [Player].
+  late final VideoController controller = VideoController(player);
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize()
-          .then((_) {
-            if (mounted) {
-              setState(() {
-                _initialized = true;
-              });
-              if (widget.autoPlay) {
-                _controller.play();
-              }
-              _controller.setLooping(true);
-            }
-          })
-          .catchError((e) {
-            if (mounted) setState(() => _hasError = true);
-          });
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    // 加载视频资源
+    await player.open(Media(widget.url), play: widget.autoPlay);
+    // 设置循环播放
+    await player.setPlaylistMode(PlaylistMode.loop);
+    // 设置音量 (可选，默认100)
+    await player.setVolume(100);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_hasError) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error, color: Colors.red, size: 40),
-            Text("Playback Error", style: TextStyle(color: Colors.white)),
-          ],
-        ),
-      );
-    }
-    if (!_initialized) {
-      return const Center(child: CircularProgressIndicator(color: Colors.teal));
-    }
     return Center(
-      child: AspectRatio(
-        aspectRatio: _controller.value.aspectRatio,
-        child: GestureDetector(
-          onTap: () {
-            if (widget.onTap != null) {
-              widget.onTap!();
-            } else {
-              _controller.value.isPlaying
-                  ? _controller.pause()
-                  : _controller.play();
-            }
-          },
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              VideoPlayer(_controller),
-              if (!_controller.value.isPlaying)
-                Container(
-                  color: Colors.black26,
-                  child: const Center(
-                    child: Icon(
-                      Icons.play_arrow,
-                      size: 60,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+      child: SizedBox(
+        width: MediaQuery.of(context).size.width,
+        height: MediaQuery.of(context).size.height,
+        child: Video(
+          controller: controller,
+          // fit: BoxFit.contain 保证视频完整显示，不会被裁剪
+          fit: BoxFit.contain,
+          // === 关键修改：使用 MaterialVideoControls ===
+          // 这会提供类似 YouTube 的专业控制栏（进度条、时间、暂停、音量等）
+          // 并且会自动适配桌面端(鼠标)和移动端(触摸)的操作习惯
+          controls: MaterialVideoControls,
         ),
       ),
     );
   }
 }
-
+// ------------------------------------------------------------------
+// 全屏视频播放页
+// ------------------------------------------------------------------
 class VideoPlayerPage extends StatelessWidget {
   final String url;
 
@@ -2031,15 +1995,32 @@ class VideoPlayerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      // 使用 SafeArea 确保顶部不被刘海遮挡，但你可以根据需要去掉
       body: Stack(
         children: [
-          Center(child: SimpleVideoPlayer(url: url, autoPlay: true)),
+          // 视频播放器主体
+          SimpleVideoPlayer(url: url, autoPlay: true),
+
+          // 左上角返回按钮 (虽然播放器可能有全屏退出，但保留一个显式的退出是个好习惯)
+          // 给它加个 SafeArea 和 阴影，防止看不见
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 16,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 30),
-              onPressed: () => Navigator.of(context).pop(),
+            child: SafeArea(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
             ),
           ),
         ],
