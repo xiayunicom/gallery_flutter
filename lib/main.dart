@@ -259,6 +259,8 @@ class _GalleryPageState extends State<GalleryPage> {
   Timer? _autoScrollTimer;
   bool _suppressNextTap = false;
 
+  double? _lastScreenWidth;
+
   @override
   void initState() {
     super.initState();
@@ -1308,7 +1310,11 @@ class _GalleryPageState extends State<GalleryPage> {
     return totalHeight + _calculateSectionTitleHeight();
   }
 
-  void _scrollToImage(int targetIndex, {bool smartScroll = false}) {
+  void _scrollToImage(
+    int targetIndex, {
+    bool smartScroll = false,
+    bool jump = false,
+  }) {
     if (targetIndex < 0 || targetIndex >= images.length) return;
     if (!_scrollController.hasClients) return;
 
@@ -1398,6 +1404,18 @@ class _GalleryPageState extends State<GalleryPage> {
     double actualRowHeight = rowHeights[targetRowIndex] - spacing;
     double itemBottom = itemTop + actualRowHeight;
 
+    if (jump) {
+      final double viewportHeight =
+          _scrollController.position.viewportDimension;
+
+      double centerOffset =
+          itemTop - (viewportHeight / 2) + (actualRowHeight / 2);
+      _scrollController.jumpTo(
+        centerOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+      );
+      return;
+    }
+
     if (smartScroll) {
       final double viewportHeight =
           _scrollController.position.viewportDimension;
@@ -1441,6 +1459,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _openPreview(int initialIndex) async {
+    _lastInteractionIndex = initialIndex;
     final result = await Navigator.push<int>(
       context,
       CupertinoPageRoute(
@@ -1455,7 +1474,13 @@ class _GalleryPageState extends State<GalleryPage> {
     await _silentRefresh();
 
     if (result != null && result >= 0 && result < images.length) {
+      // 关键：更新全局记录的最后交互索引
+      setState(() {
+        _lastInteractionIndex = result;
+      });
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        // 返回时带动画稍微自然一点，或者根据喜好改成 jump: true
         _scrollToImage(result, smartScroll: true);
       });
     }
@@ -1464,6 +1489,20 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
+
+    if (_lastScreenWidth != null &&
+        (screenWidth - _lastScreenWidth!).abs() > 1.0) {
+      // 如果宽度变化超过 1 像素（避免浮点数微小误差），且有选中的/最后交互的图
+      if (_lastInteractionIndex != null) {
+        // 使用 addPostFrameCallback 确保在这一帧布局完成后再跳转
+        // 否则此时计算的高度可能还是旧的
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToImage(_lastInteractionIndex!, jump: true);
+        });
+      }
+    }
+    _lastScreenWidth = screenWidth;
+
     int crossAxisCount;
     if (screenWidth < 600)
       crossAxisCount = 3;
