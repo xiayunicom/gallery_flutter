@@ -960,45 +960,90 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildBreadcrumbs() {
+    // 1. 如果是根目录，直接显示 Home
     if (widget.path.isEmpty) {
       return const Text("Home", style: TextStyle(fontWeight: FontWeight.bold));
     }
+
+    // 2. 解析路径层级
     List<String> parts = widget.path
         .split('/')
         .where((p) => p.isNotEmpty)
         .toList();
+
     List<Widget> crumbs = [];
+
+    // 3. 添加 Home 图标（点击回退到根）
     crumbs.add(
       InkWell(
         onTap: () {
           Navigator.of(context).popUntil((route) => route.isFirst);
         },
+        borderRadius: BorderRadius.circular(4),
         child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 2.0),
+          padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
           child: Icon(Icons.home, size: 18, color: Colors.grey),
         ),
       ),
     );
+
+    // 4. 遍历路径层级生成面包屑
     for (int i = 0; i < parts.length; i++) {
+      // 添加分隔符
       crumbs.add(const Icon(Icons.chevron_right, size: 16, color: Colors.grey));
+
       bool isLast = i == parts.length - 1;
-      crumbs.add(
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
-          child: Text(
-            parts[i],
-            style: TextStyle(
-              color: isLast ? Colors.white : Colors.white70,
-              fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
-              fontSize: 16,
-            ),
-          ),
+      String folderName = parts[i];
+
+      Widget textLabel = Text(
+        folderName,
+        style: TextStyle(
+          // 末尾节点高亮白色，中间节点灰白
+          color: isLast ? Colors.white : Colors.white70,
+          fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+          fontSize: 16,
         ),
       );
+
+      if (isLast) {
+        // 当前所在目录（不可点击）
+        crumbs.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+            child: textLabel,
+          ),
+        );
+      } else {
+        // 中间目录（可点击，回退 N 层）
+        crumbs.add(
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () {
+              // 计算需要 pop 多少次才能回到该层级
+              // 例如：A/B/C (length=3), 点击 A (index=0) -> 需要 pop (3-1-0) = 2 次
+              int popCount = parts.length - 1 - i;
+              for (int k = 0; k < popCount; k++) {
+                if (Navigator.canPop(context)) {
+                  Navigator.of(context).pop();
+                }
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+              child: textLabel,
+            ),
+          ),
+        );
+      }
     }
+
+    // 5. 支持横向滚动，防止路径过长溢出
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: Row(children: crumbs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: crumbs,
+      ),
     );
   }
 
