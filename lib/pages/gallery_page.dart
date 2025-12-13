@@ -97,6 +97,11 @@ class _GalleryPageState extends State<GalleryPage> {
           images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
         });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            FocusScope.of(context).requestFocus();
+          }
+        });
       }
     } catch (e) {
       if (mounted) {
