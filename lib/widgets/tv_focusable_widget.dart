@@ -1,7 +1,8 @@
 // lib/widgets/tv_focusable_widget.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-class TVFocusableWidget extends StatefulWidget {
+class TVFocusableWidget extends StatelessWidget {
   final Widget child;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -20,45 +21,48 @@ class TVFocusableWidget extends StatefulWidget {
   });
 
   @override
-  State<TVFocusableWidget> createState() => _TVFocusableWidgetState();
-}
-
-class _TVFocusableWidgetState extends State<TVFocusableWidget> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      onSecondaryTap: widget.onSecondaryTap,
-      onFocusChange: (value) {
-        setState(() {
-          _isFocused = value;
-        });
-      },
-      borderRadius: BorderRadius.circular(widget.borderRadius),
-      focusColor: Colors.white.withOpacity(0.1),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          border: _isFocused
-              ? Border.all(color: Colors.white, width: 3)
-              : (widget.isSelected
-                    ? Border.all(color: Colors.tealAccent, width: 3)
-                    : Border.all(color: Colors.transparent, width: 0)),
-          boxShadow: _isFocused
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 8,
-                    spreadRadius: 2,
-                  ),
-                ]
-              : null,
+    return FocusableActionDetector(
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (intent) => onTap(),
         ),
-        child: widget.child,
+      },
+      shortcuts: {
+        LogicalKeySet(LogicalKeyboardKey.select): ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.enter): ActivateIntent(),
+      },
+      child: Builder(
+        builder: (context) {
+          final bool focused = Focus.of(context).hasFocus;
+
+          return GestureDetector(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            onSecondaryTap: onSecondaryTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(borderRadius),
+                border: focused
+                    ? Border.all(color: Colors.white, width: 3)
+                    : (isSelected
+                        ? Border.all(color: Colors.tealAccent, width: 3)
+                        : null),
+                boxShadow: focused
+                    ? [
+                        BoxShadow(
+                          color: Colors.black54,
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        )
+                      ]
+                    : null,
+              ),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
