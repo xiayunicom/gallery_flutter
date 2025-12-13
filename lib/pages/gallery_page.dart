@@ -383,6 +383,12 @@ class _GalleryPageState extends State<GalleryPage> {
                         ),
                       ),
                     ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    // 传入 path，组件内部会自动去后端获取分辨率
+                    child: VideoResolutionTag(path: path),
+                  ),
                 ],
               ),
             ),
@@ -2257,6 +2263,77 @@ class _GalleryPageState extends State<GalleryPage> {
             ),
           );
         }, childCount: folders.length),
+      ),
+    );
+  }
+}
+
+// 在 GalleryPage 文件的末尾或其他合适位置添加这个组件
+class VideoResolutionTag extends StatefulWidget {
+  final String path;
+  const VideoResolutionTag({super.key, required this.path});
+
+  @override
+  State<VideoResolutionTag> createState() => _VideoResolutionTagState();
+}
+
+class _VideoResolutionTagState extends State<VideoResolutionTag> {
+  String text = "VIDEO"; // 默认显示
+
+  // 简单的内存缓存，避免来回滑动重复请求 (静态变量)
+  static final Map<String, String> _cache = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchResolution();
+  }
+
+  Future<void> _fetchResolution() async {
+    // 1. 检查缓存
+    if (_cache.containsKey(widget.path)) {
+      if (mounted) setState(() => text = _cache[widget.path]!);
+      return;
+    }
+
+    // 2. 请求后端
+    try {
+      final response = await Dio().get(
+        '$serverUrl/api/video-info',
+        queryParameters: {'path': widget.path},
+      );
+      if (mounted && response.data != null) {
+        final w = response.data['w'];
+        final h = response.data['h'];
+        if (w != null && h != null && w > 0 && h > 0) {
+          final newText = "$w x $h";
+          _cache[widget.path] = newText; // 存入缓存
+          setState(() {
+            text = newText;
+          });
+        }
+      }
+    } catch (_) {
+      // 失败保持默认 "VIDEO"
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          fontFamily: "monospace",
+        ),
       ),
     );
   }
