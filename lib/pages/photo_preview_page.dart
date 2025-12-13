@@ -197,6 +197,83 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
       _toggleAutoPlay();
     }
   }
+  // ... inside _PhotoPreviewPageState
+
+  Future<void> _renameCurrentPhoto() async {
+    final item = _currentImages[currentIndex];
+    final String currentPath = item['path'];
+    final String currentName = item['name'];
+
+    TextEditingController controller = TextEditingController(text: currentName);
+
+    String? newName = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text("Rename", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.tealAccent),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text("Rename"),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty && newName != currentName) {
+      try {
+        await Dio().post(
+          '$serverUrl/api/rename',
+          data: FormData.fromMap({'path': currentPath, 'name': newName}),
+        );
+
+        // 计算新的路径（简单的字符串替换，这取决于后端逻辑，但通常重命名只是改文件名）
+        // 假设路径格式是 /a/b/c.jpg，我们要把 c.jpg 换成 newName
+        String parentPath = currentPath.substring(
+          0,
+          currentPath.lastIndexOf('/') + 1,
+        );
+        String newPath = parentPath + newName;
+
+        setState(() {
+          // 1. 更新当前内存列表中的数据
+          _currentImages[currentIndex]['name'] = newName;
+          _currentImages[currentIndex]['path'] = newPath;
+
+          // 2. 更新版本号，强制图片组件刷新（如果是在线加载的话）
+          TaskManager().bumpVersions([newPath]);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Renamed successfully"),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Rename failed: $e")));
+      }
+    }
+  }
 
   void _handleKeyEvent(RawKeyEvent event) {
     if (event is RawKeyDownEvent) {
@@ -422,6 +499,17 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                                   onPressed: _toggleAutoPlay,
                                 ),
                               ),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(
+                                Icons.drive_file_rename_outline,
+                                color: Colors.white,
+                              ),
+                              iconSize: 24,
+                              onPressed: _renameCurrentPhoto,
                             ),
                             const SizedBox(width: 16),
                             IconButton(

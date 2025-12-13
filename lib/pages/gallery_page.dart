@@ -683,6 +683,75 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  Future<void> _renameSelected() async {
+    if (selectedPaths.length != 1) return;
+
+    final String path = selectedPaths.first;
+    // 从 combinedMedia 中找到对应的 item 以获取当前名称
+    final item = combinedMedia.firstWhere(
+      (e) => e['path'] == path,
+      orElse: () => null,
+    );
+    if (item == null) return;
+
+    final String currentName = item['name'];
+
+    TextEditingController controller = TextEditingController(text: currentName);
+
+    String? newName = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text("Rename Item", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: "Enter new name",
+            hintStyle: TextStyle(color: Colors.white24),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.tealAccent),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text("Rename"),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty && newName != currentName) {
+      try {
+        await Dio().post(
+          '$serverUrl/api/rename',
+          data: FormData.fromMap({'path': path, 'name': newName}),
+        );
+
+        // 重命名成功后，退出选择模式并刷新
+        setState(() {
+          isSelectionMode = false;
+          selectedPaths.clear();
+        });
+        _silentRefresh();
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Rename failed: $e")));
+      }
+    }
+  }
+
   void _showFolderMenu(dynamic folder) {
     showModalBottomSheet(
       context: context,
@@ -716,6 +785,28 @@ class _GalleryPageState extends State<GalleryPage> {
               onTap: () {
                 Navigator.pop(context);
                 _convertWebP(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.cleaning_services_outlined,
+                color: Colors.orangeAccent,
+              ),
+              title: const Text('Clean Junk Files'),
+              onTap: () {
+                Navigator.pop(context);
+                _cleanFolderDialog(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.sort_by_alpha,
+                color: Colors.purpleAccent,
+              ),
+              title: const Text('Organize Sub-files'),
+              onTap: () {
+                Navigator.pop(context);
+                _organizeFolderDialog(folder);
               },
             ),
             ListTile(
@@ -809,6 +900,157 @@ class _GalleryPageState extends State<GalleryPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("WebP Conversion task started...")),
     );
+  }
+
+  Future<void> _cleanFolderDialog(dynamic folder) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text(
+          "Clean Junk Files?",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Folder: ${folder['name']}",
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "This will RECURSIVELY delete junk files (.url, .txt, .html, promotion images, etc.) inside this folder.",
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "This action cannot be undone.",
+              style: TextStyle(color: Colors.redAccent, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              "Clean",
+              style: TextStyle(color: Colors.orangeAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await Dio().post(
+          '$serverUrl/api/clean',
+          data: FormData.fromMap({'path': folder['path']}),
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Cleaning task started... Check task list for progress.",
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
+      }
+    }
+  }
+
+  // ... 在 _GalleryPageState 类中
+
+  Future<void> _organizeFolderDialog(dynamic folder) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text(
+          "Organize Files?",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Folder: ${folder['name']}",
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "This will recursively rename ALL files in subdirectories to a sequential number format (0001.jpg, 0002.mp4...).",
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "It uses 'Natural Sort' (1.jpg, 2.jpg, 10.jpg).",
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "WARNING: Original filenames will be lost!",
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              "Organize",
+              style: TextStyle(color: Colors.purpleAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await Dio().post(
+          '$serverUrl/api/organize',
+          data: FormData.fromMap({'path': folder['path']}),
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Organizing task started..."),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
+      }
+    }
   }
 
   void _showTaskList() {
@@ -937,7 +1179,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                       onPressed: () {
                                         TaskManager().removeTask(taskId);
                                       },
-                                      tooltip: "Clear",
                                     ),
                                   ),
                               ],
@@ -1448,6 +1689,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 ],
               ),
       ),
+      // ... inside Scaffold
       bottomNavigationBar: isSelectionMode
           ? Container(
               color: const Color(0xFF18181B),
@@ -1467,6 +1709,15 @@ class _GalleryPageState extends State<GalleryPage> {
                         "Right +90°",
                         () => _rotateSelected(90),
                       ),
+                      // --- 新增逻辑: 只有选中 1 个时才显示重命名按钮 ---
+                      if (selectedPaths.length == 1)
+                        _buildBottomBtn(
+                          Icons.drive_file_rename_outline,
+                          "Rename",
+                          _renameSelected,
+                          color: Colors.blueAccent, // 用蓝色区分一下
+                        ),
+                      // -------------------------------------------
                       _buildBottomBtn(
                         Icons.delete,
                         "Delete",

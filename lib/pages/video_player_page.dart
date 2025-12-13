@@ -55,7 +55,6 @@ class _SimpleVideoPlayerState extends State<SimpleVideoPlayer> {
             Shadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 1)),
           ],
         ),
-        tooltip: 'Back',
       ),
       const Spacer(),
     ];
