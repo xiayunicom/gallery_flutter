@@ -183,39 +183,41 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
           if (currentIndex >= _currentImages.length)
             currentIndex = _currentImages.length - 1;
         });
-        if (_currentImages.isEmpty)
+        if (_currentImages.isEmpty) {
           Navigator.pop(context, -1);
-        else if (wasPlaying)
+        } else if (wasPlaying) {
           _toggleAutoPlay();
+        }
       } catch (e) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text("Delete failed: $e")));
       }
-    } else {
-      if (wasPlaying) _toggleAutoPlay();
+    } else if (wasPlaying) {
+      _toggleAutoPlay();
     }
   }
 
   void _handleKeyEvent(RawKeyEvent event) {
     if (event is RawKeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.escape)
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
         Navigator.pop(context, currentIndex);
-      else if (event.logicalKey == LogicalKeyboardKey.space)
+      } else if (event.logicalKey == LogicalKeyboardKey.space) {
         _toggleAutoPlay();
-      else if (event.logicalKey == LogicalKeyboardKey.arrowRight)
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
         _pageController.nextPage(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
-      else if (event.logicalKey == LogicalKeyboardKey.arrowLeft)
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
         _pageController.previousPage(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
-      else if (event.logicalKey == LogicalKeyboardKey.delete ||
-          event.logicalKey == LogicalKeyboardKey.backspace)
+      } else if (event.logicalKey == LogicalKeyboardKey.delete ||
+          event.logicalKey == LogicalKeyboardKey.backspace) {
         _deleteCurrentPhoto();
+      }
     }
   }
 
@@ -260,260 +262,240 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                       scale: _dragScale,
                       child: PhotoViewGallery.builder(
                         scrollPhysics: const BouncingScrollPhysics(),
-                        scaleStateChangedCallback: (PhotoViewScaleState state) {
-                          setState(() {
-                            _isZoomed = state != PhotoViewScaleState.initial;
-                          });
-                        },
-                        builder: (BuildContext context, int index) {
+                        scaleStateChangedCallback: (state) => setState(
+                          () =>
+                              _isZoomed = state != PhotoViewScaleState.initial,
+                        ),
+                        builder: (context, index) {
                           final item = _currentImages[index];
                           final imgUrl = TaskManager().getImgUrl(item['path']);
                           return PhotoViewGalleryPageOptions(
                             imageProvider: CachedNetworkImageProvider(imgUrl),
                             initialScale: PhotoViewComputedScale.contained,
-                            minScale: PhotoViewComputedScale.contained,
-                            maxScale: PhotoViewComputedScale.covered * 3.0,
+                            minScale: PhotoViewComputedScale.contained * 0.8,
+                            maxScale: PhotoViewComputedScale.covered * 4,
                             heroAttributes: PhotoViewHeroAttributes(
-                              tag: imgUrl,
+                              tag: item['path'],
                             ),
-                            onTapUp: (context, details, value) {
-                              _toggleControls();
-                            },
                           );
                         },
                         itemCount: _currentImages.length,
-                        loadingBuilder: (context, event) => const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.white24,
-                          ),
-                        ),
+                        loadingBuilder: (context, event) =>
+                            const Center(child: CircularProgressIndicator()),
                         pageController: _pageController,
-                        onPageChanged: (index) {
-                          setState(() {
-                            currentIndex = index;
-                          });
-                        },
-                        backgroundDecoration: const BoxDecoration(
-                          color: Colors.transparent,
-                        ),
+                        onPageChanged: (index) =>
+                            setState(() => currentIndex = index),
                       ),
                     ),
                   ),
                 ),
               ),
-              IgnorePointer(
-                ignoring: !showControls,
-                child: Opacity(
-                  opacity: bgOpacity,
+
+              // ===== 顶部统一控制栏（同一行）=====
+              if (showControls)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 12,
+                  left: 16,
+                  right: 16,
                   child: Stack(
                     children: [
-                      // Top Bar
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeInOutQuart,
-                        top: showControls ? 0 : -20,
-                        left: 0,
-                        right: 0,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeInOut,
-                          opacity: showControls ? 1.0 : 0.0,
-                          child: Container(
-                            padding: EdgeInsets.only(
-                              left: 16,
-                              right: 16,
-                              bottom: 10,
-                              top: MediaQuery.of(context).padding.top + 10,
-                            ),
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Colors.black87, Colors.transparent],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
+                      // 左侧：返回箭头 + 页码指示器（挨在一起）
+                      Row(
+                        children: [
+                          // 返回箭头
+                          AnimatedSlide(
+                            offset: showControls
+                                ? Offset.zero
+                                : const Offset(-1.5, 0),
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOut,
+                            child: AnimatedOpacity(
+                              opacity: showControls ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 300),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(30),
+                                  onTap: () =>
+                                      Navigator.pop(context, currentIndex),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black38,
+                                      borderRadius: BorderRadius.circular(30),
+                                    ),
+                                    child: const Icon(
+                                      Icons.arrow_back_ios_new,
+                                      color: Colors.white,
+                                      size: 26,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black54,
+                                          blurRadius: 4,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white12,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      "${currentIndex + 1}/${_currentImages.length}",
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        currentItem['name'],
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      if (currentItem['w'] != null)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 2,
-                                          ),
-                                          child: Text(
-                                            "${currentItem['w']} x ${currentItem['h']} px",
-                                            style: const TextStyle(
-                                              color: Colors.white54,
-                                              fontSize: 10,
-                                              fontFamily: 'monospace',
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      AnimatedBuilder(
-                                        animation: _breatheController,
-                                        builder: (ctx, child) => Opacity(
-                                          opacity: isPlaying
-                                              ? _breatheController.value
-                                              : 1.0,
-                                          child: IconButton(
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
-                                            icon: Icon(
-                                              isPlaying
-                                                  ? Icons.pause_circle_filled
-                                                  : Icons.play_circle_filled,
-                                              color: isPlaying
-                                                  ? Colors.tealAccent
-                                                  : Colors.white,
-                                            ),
-                                            iconSize: 28,
-                                            onPressed: _toggleAutoPlay,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          color: Colors.redAccent,
-                                        ),
-                                        iconSize: 24,
-                                        onPressed: _deleteCurrentPhoto,
-                                      ),
-                                      const SizedBox(width: 16),
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                        icon: const Icon(
-                                          Icons.close,
-                                          color: Colors.white,
-                                        ),
-                                        iconSize: 28,
-                                        onPressed: () => Navigator.pop(
-                                          context,
-                                          currentIndex,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                          ),
+                          const SizedBox(width: 12),
+                          // 页码指示器
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white12,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              "${currentIndex + 1}/${_currentImages.length}",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
+                        ],
+                      ),
+
+                      // 绝对居中：文件名 + 尺寸
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              currentItem['name'],
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (currentItem['w'] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  "${currentItem['w']} x ${currentItem['h']} px",
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 10,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      if (!isMobile) ...[
-                        // 左箭头
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: AnimatedSlide(
-                            offset: showControls
-                                ? Offset.zero
-                                : const Offset(-1.2, 0),
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 250),
-                              opacity: showControls ? 1.0 : 0.0,
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 10),
+
+                      // 右侧：播放/暂停 + 删除
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedBuilder(
+                              animation: _breatheController,
+                              builder: (ctx, child) => Opacity(
+                                opacity: isPlaying
+                                    ? _breatheController.value
+                                    : 1.0,
                                 child: IconButton(
-                                  icon: const Icon(
-                                    Icons.arrow_back_ios,
-                                    color: Colors.white24,
-                                    size: 30,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  icon: Icon(
+                                    isPlaying
+                                        ? Icons.pause_circle_filled
+                                        : Icons.play_circle_filled,
+                                    color: isPlaying
+                                        ? Colors.tealAccent
+                                        : Colors.white,
                                   ),
-                                  onPressed: () => _pageController.previousPage(
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.ease,
-                                  ),
+                                  iconSize: 28,
+                                  onPressed: _toggleAutoPlay,
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                        // 右箭头
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: AnimatedSlide(
-                            offset: showControls
-                                ? Offset.zero
-                                : const Offset(1.2, 0),
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 250),
-                              opacity: showControls ? 1.0 : 0.0,
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 10),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    Icons.arrow_forward_ios,
-                                    color: Colors.white24,
-                                    size: 30,
-                                  ),
-                                  onPressed: () => _pageController.nextPage(
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.ease,
-                                  ),
-                                ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.redAccent,
                               ),
+                              iconSize: 24,
+                              onPressed: _deleteCurrentPhoto,
                             ),
-                          ),
+                          ],
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-              ),
+
+              // 非移动端左右箭头导航（保持原有）
+              if (!isMobile) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: AnimatedSlide(
+                    offset: showControls ? Offset.zero : const Offset(-1.2, 0),
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    child: AnimatedOpacity(
+                      opacity: showControls ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 250),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 10),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back_ios,
+                            color: Colors.white24,
+                            size: 30,
+                          ),
+                          onPressed: () => _pageController.previousPage(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.ease,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: AnimatedSlide(
+                    offset: showControls ? Offset.zero : const Offset(1.2, 0),
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    child: AnimatedOpacity(
+                      opacity: showControls ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 250),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.arrow_forward_ios,
+                            color: Colors.white24,
+                            size: 30,
+                          ),
+                          onPressed: () => _pageController.nextPage(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.ease,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
