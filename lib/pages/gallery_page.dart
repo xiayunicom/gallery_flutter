@@ -1505,6 +1505,8 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   // 修改：接受具体的 items 列表和全局起始索引
+  // ... 在 _GalleryPageState 类中
+
   List<Widget> _computeJustifiedRows(
     double screenWidth,
     List<dynamic> items, {
@@ -1521,9 +1523,12 @@ class _GalleryPageState extends State<GalleryPage> {
     final double contentWidth = screenWidth - (spacing * 2);
     List<Widget> rows = [];
     List<dynamic> currentRowItems = [];
-    // 记录这一行在局部列表中的起始索引，用于构建 Row 时传递正确的 index
+
     int currentRowStartLocalIndex = 0;
     double currentRowAspectRatioSum = 0.0;
+
+    // 记录上一行的最终高度
+    double? previousRowFinalHeight;
 
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
@@ -1540,29 +1545,56 @@ class _GalleryPageState extends State<GalleryPage> {
 
       double totalGapWidth = (currentRowItems.length - 1) * spacing;
 
+      // 计算：如果当前这些图要填满屏幕宽度，需要多高？
       double projectedHeight =
           (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
 
+      // 判断是否需要换行（高度小于目标值）或者已经是最后一张图
       if (projectedHeight <= targetRowHeight || i == items.length - 1) {
         bool isLastRow = i == items.length - 1;
+        double finalHeight = projectedHeight;
 
-        if (isLastRow && projectedHeight > targetRowHeight) {
-          projectedHeight = targetRowHeight;
-        } else if (projectedHeight > targetRowHeight * 1.5) {
-          projectedHeight = targetRowHeight;
+        // --- 核心优化逻辑 (修正版) ---
+        if (isLastRow) {
+          // 获取参考高度：优先用上一行的高度，如果没有（比如只有一行），则用目标高度
+          double referenceHeight = previousRowFinalHeight ?? targetRowHeight;
+
+          // 逻辑说明：
+          // projectedHeight 是"填满屏幕所需的高度"。
+          // 如果 projectedHeight > referenceHeight，说明图片不够密，需要拉得很高才能填满屏幕。
+          // 这种情况下，我们不让它填满，而是强制压回 referenceHeight，让右边留白。
+          if (projectedHeight > referenceHeight) {
+            finalHeight = referenceHeight;
+          } else {
+            // 如果 projectedHeight <= referenceHeight，说明图片足够多，
+            // 甚至比上一行还密（高度更小）。
+            // 这种情况下，我们允许它填满屏幕（Standard Justified Behavior），
+            // 否则如果强制用 referenceHeight，图片宽度加起来会超过屏幕宽度导致溢出。
+            finalHeight = projectedHeight;
+          }
+        } else {
+          // 不是最后一行，必须填满
+          // 限制最大高度，防止极端长图（全景图）导致单行高度过大
+          if (finalHeight > targetRowHeight * 1.5) {
+            finalHeight = targetRowHeight;
+          }
         }
+        // --- 逻辑结束 ---
 
         rows.add(
           _buildJustifiedRow(
             currentRowItems,
-            projectedHeight,
+            finalHeight,
             spacing,
             isLastRow: isLastRow,
-            // 传递当前行第一个元素在 local list 中的 index，以及 global offset
             localStartIndex: currentRowStartLocalIndex,
             globalStartIndex: globalStartIndex,
           ),
         );
+
+        // 只有当这一行不是"为了填满而强制压缩"的情况下，才记录为参考高度
+        // (通常记录 finalHeight 即可，但在极端比例下也可以加判断，这里直接记录即可)
+        previousRowFinalHeight = finalHeight;
 
         currentRowItems = [];
         currentRowAspectRatioSum = 0.0;
