@@ -16,6 +16,7 @@ import 'package:badges/badges.dart' as badges;
 import 'package:flutter/gestures.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+
 // ==========================================
 // CONFIG: 你的 Mac/PC 局域网 IP
 // ==========================================
@@ -1228,6 +1229,37 @@ class _GalleryPageState extends State<GalleryPage> {
     return gridHeight + _calculateSectionTitleHeight();
   }
 
+  // 新增：专门计算视频 Grid 区域的高度
+  // 逻辑必须与 _buildVideoGrid 中的 SliverGridDelegateWithFixedCrossAxisCount 保持一致
+  double _calculateVideosSectionHeight(int crossAxisCount) {
+    if (videos.isEmpty) return 0.0;
+
+    // _buildVideoGrid 中 Padding 是 symmetric(horizontal: 4)，所以总占用 8
+    const double horizontalPadding = 8.0;
+    const double spacing = 4.0;
+
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double contentWidth = screenWidth - horizontalPadding;
+
+    // 计算单个 Item 的宽度
+    final double itemWidth =
+        (contentWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
+
+    // 宽高比是 16/9，所以 高度 = 宽度 * 9 / 16
+    final double itemHeight = itemWidth * 9 / 16;
+
+    // 计算行数
+    final int rowCount = (videos.length / crossAxisCount).ceil();
+
+    // 总高度 = (行数 * 单行高) + (间距 * (行数-1))
+    double gridHeight = rowCount * itemHeight;
+    if (rowCount > 1) {
+      gridHeight += (rowCount - 1) * spacing;
+    }
+
+    return gridHeight + _calculateSectionTitleHeight();
+  }
+
   double _calculateMediaSectionHeight(List<dynamic> items, double screenWidth) {
     if (items.isEmpty) return 0.0;
 
@@ -1294,7 +1326,7 @@ class _GalleryPageState extends State<GalleryPage> {
     double currentOffset = _calculateFoldersSectionHeight(crossAxisCount);
 
     if (videos.isNotEmpty) {
-      currentOffset += _calculateMediaSectionHeight(videos, screenWidth);
+      currentOffset += _calculateVideosSectionHeight(crossAxisCount);
     }
 
     if (images.isNotEmpty) {
