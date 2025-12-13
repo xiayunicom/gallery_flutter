@@ -99,6 +99,7 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon" # 如果以后要发安卓，这里设为 true 或文件名
   ios: true
+  windows: true
   image_path: "assets/app_icon.png"
   remove_alpha_ios: true
   video_player: ^2.8.1
