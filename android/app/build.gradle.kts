@@ -34,23 +34,22 @@ android {
 
     signingConfigs {
         create("release") {
-            // 尝试从环境变量获取（GitHub Actions 环境），如果没找到则尝试从本地 local.properties 获取（本地开发环境）
-            val keystorePath = System.getenv("KEYSTORE_PATH") 
-            val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
-            val keyAlias = System.getenv("KEY_ALIAS")
-            val keyPassword = System.getenv("KEY_PASSWORD")
+            // 1. 修改变量名，避免和下面的属性名冲突
+            val envKeystorePath = System.getenv("KEYSTORE_PATH")
+            val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val envKeyAlias = System.getenv("KEY_ALIAS")
+            val envKeyPassword = System.getenv("KEY_PASSWORD")
 
-            if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
-                storeFile = file(keystorePath)
-                storePassword = keystorePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+            if (envKeystorePath != null && envKeystorePassword != null && envKeyAlias != null && envKeyPassword != null) {
+                storeFile = file(envKeystorePath)
+                storePassword = envKeystorePassword
+                // 2. 将改名后的变量赋值给配置属性
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
             } else {
-                // 如果环境变量缺失，回退到 debug 签名或者抛出警告
                 println("Release signing keys not found in environment variables. Using debug signing.")
-                storeFile = file("debug.keystore") // 需确保 debug.keystore 存在或指向默认路径
-                // 或者直接复用 debug config:
-                // initWith(getByName("debug"))
+                // 确保 debug.keystore 存在，或者回退到 debug 配置
+                storeFile = file("debug.keystore")
             }
         }
     }
