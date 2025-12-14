@@ -1,5 +1,6 @@
 // lib/pages/photo_preview_page.dart
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -26,6 +27,10 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   late PageController _pageController;
   late int currentIndex;
   late List<dynamic> _currentImages;
+  
+  // 管理每一页的缩放控制器
+  final Map<int, PhotoViewController> _controllers = {};
+
   bool showControls = false;
   bool isPlaying = false;
   Timer? _autoPlayTimer;
@@ -35,6 +40,8 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   AnimationController? _resetController;
   Animation<Offset>? _offsetAnimation;
   Animation<double>? _scaleAnimation;
+  
+  // 核心状态：是否处于放大状态
   bool _isZoomed = false;
 
   @override
@@ -58,7 +65,46 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     _pageController.dispose();
     _breatheController.dispose();
     _resetController?.dispose();
+    
+    for (var controller in _controllers.values) {
+      controller.dispose();
+    }
+    
     super.dispose();
+  }
+
+  PhotoViewController _getController(int index) {
+    if (!_controllers.containsKey(index)) {
+      _controllers[index] = PhotoViewController();
+    }
+    return _controllers[index]!;
+  }
+
+  // 处理鼠标滚轮缩放
+  void _handleScroll(PointerScrollEvent event) {
+    // 如果正在执行下滑关闭动作，禁止缩放
+    if (_dragScale != 1.0) return;
+
+    final controller = _getController(currentIndex);
+    double currentScale = controller.scale ?? 1.0;
+    
+    // 向上滚动(dy<0)放大，向下滚动(dy>0)缩小
+    double zoomFactor = 0.08; 
+    double delta = event.scrollDelta.dy > 0 ? -zoomFactor : zoomFactor;
+    double newScale = currentScale + delta;
+
+    // 限制缩放范围
+    if (newScale < 0.1) newScale = 0.1;
+    if (newScale > 5.0) newScale = 5.0;
+
+    controller.scale = newScale;
+    
+    // 手动更新缩放状态（辅助 PhotoView 的状态回调）
+    // 注意：这里阈值设为 1.0 可能不准确（取决于 initialScale），但在大多数 contained 模式下是有效的参考
+    // 更准确的逻辑由 scaleStateChangedCallback 处理，这里主要处理滚轮的即时反馈
+    if (newScale > 1.05 && !_isZoomed) {
+       setState(() => _isZoomed = true);
+    }
   }
 
   void _toggleControls() {
@@ -99,10 +145,13 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
+    // 【关键】如果处于缩放状态，直接忽略下滑关闭逻辑
     if (_isZoomed) return;
+
     setState(() {
       double dy = _dragOffset.dy + details.delta.dy;
       double dx = _dragOffset.dx + details.delta.dx;
+      // 向上拖动阻尼更大
       if (dy < 0) dy *= 0.4;
       _dragOffset = Offset(dx, dy);
       final screenHeight = MediaQuery.of(context).size.height;
@@ -113,6 +162,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   void _onVerticalDragEnd(DragEndDetails details) {
     if (_isZoomed) return;
+    
     final velocity = details.primaryVelocity ?? 0;
     final screenHeight = MediaQuery.of(context).size.height;
     final threshold = screenHeight * 0.15;
@@ -180,6 +230,10 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
         );
         setState(() {
           _currentImages.removeAt(currentIndex);
+          _controllers[currentIndex]?.dispose();
+          _controllers.remove(currentIndex);
+          _controllers.clear(); 
+
           if (currentIndex >= _currentImages.length)
             currentIndex = _currentImages.length - 1;
         });
@@ -197,7 +251,6 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
       _toggleAutoPlay();
     }
   }
-  // ... inside _PhotoPreviewPageState
 
   Future<void> _renameCurrentPhoto() async {
     final item = _currentImages[currentIndex];
@@ -244,8 +297,6 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
           data: FormData.fromMap({'path': currentPath, 'name': newName}),
         );
 
-        // 计算新的路径（简单的字符串替换，这取决于后端逻辑，但通常重命名只是改文件名）
-        // 假设路径格式是 /a/b/c.jpg，我们要把 c.jpg 换成 newName
         String parentPath = currentPath.substring(
           0,
           currentPath.lastIndexOf('/') + 1,
@@ -253,11 +304,8 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
         String newPath = parentPath + newName;
 
         setState(() {
-          // 1. 更新当前内存列表中的数据
           _currentImages[currentIndex]['name'] = newName;
           _currentImages[currentIndex]['path'] = newPath;
-
-          // 2. 更新版本号，强制图片组件刷新（如果是在线加载的话）
           TaskManager().bumpVersions([newPath]);
         });
 
@@ -325,266 +373,229 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
         child: Scaffold(
           backgroundColor: Colors.transparent,
           extendBodyBehindAppBar: true,
-          body: Stack(
-            children: [
-              Container(color: Colors.black.withOpacity(bgOpacity)),
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: _toggleControls,
-                  onVerticalDragUpdate: _onVerticalDragUpdate,
-                  onVerticalDragEnd: _onVerticalDragEnd,
-                  child: Transform.translate(
-                    offset: _dragOffset,
-                    child: Transform.scale(
-                      scale: _dragScale,
-                      child: PhotoViewGallery.builder(
-                        scrollPhysics: const BouncingScrollPhysics(),
-                        scaleStateChangedCallback: (state) => setState(
-                          () =>
-                              _isZoomed = state != PhotoViewScaleState.initial,
+          body: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent) {
+                _handleScroll(event);
+              }
+            },
+            child: Stack(
+              children: [
+                Container(color: Colors.black.withOpacity(bgOpacity)),
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: _toggleControls,
+                    // 【关键修改】如果处于缩放状态，将外层的拖动回调设为 null
+                    // 这样手势事件就会穿透给 PhotoView，实现放大后的拖动（Pan）
+                    onVerticalDragUpdate: _isZoomed ? null : _onVerticalDragUpdate,
+                    onVerticalDragEnd: _isZoomed ? null : _onVerticalDragEnd,
+                    child: Transform.translate(
+                      offset: _dragOffset,
+                      child: Transform.scale(
+                        scale: _dragScale,
+                        child: PhotoViewGallery.builder(
+                          scrollPhysics: const BouncingScrollPhysics(),
+                          // 监听缩放状态变化，更新 _isZoomed
+                          scaleStateChangedCallback: (state) => setState(
+                            () => _isZoomed = state != PhotoViewScaleState.initial,
+                          ),
+                          builder: (context, index) {
+                            final item = _currentImages[index];
+                            final imgUrl = TaskManager().getImgUrl(item['path']);
+                            return PhotoViewGalleryPageOptions(
+                              imageProvider: CachedNetworkImageProvider(imgUrl),
+                              initialScale: PhotoViewComputedScale.contained,
+                              minScale: PhotoViewComputedScale.contained * 0.8,
+                              maxScale: PhotoViewComputedScale.covered * 4,
+                              heroAttributes: PhotoViewHeroAttributes(
+                                tag: item['path'],
+                              ),
+                              controller: _getController(index),
+                            );
+                          },
+                          itemCount: _currentImages.length,
+                          loadingBuilder: (context, event) =>
+                              const Center(child: CircularProgressIndicator()),
+                          pageController: _pageController,
+                          onPageChanged: (index) =>
+                              setState(() => currentIndex = index),
                         ),
-                        builder: (context, index) {
-                          final item = _currentImages[index];
-                          final imgUrl = TaskManager().getImgUrl(item['path']);
-                          return PhotoViewGalleryPageOptions(
-                            imageProvider: CachedNetworkImageProvider(imgUrl),
-                            initialScale: PhotoViewComputedScale.contained,
-                            minScale: PhotoViewComputedScale.contained * 0.8,
-                            maxScale: PhotoViewComputedScale.covered * 4,
-                            heroAttributes: PhotoViewHeroAttributes(
-                              tag: item['path'],
-                            ),
-                          );
-                        },
-                        itemCount: _currentImages.length,
-                        loadingBuilder: (context, event) =>
-                            const Center(child: CircularProgressIndicator()),
-                        pageController: _pageController,
-                        onPageChanged: (index) =>
-                            setState(() => currentIndex = index),
                       ),
                     ),
                   ),
                 ),
-              ),
 
-              // ===== 顶部统一控制栏（同一行）=====
-              if (showControls)
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 12,
-                  left: 16,
-                  right: 16,
-                  child: Stack(
-                    children: [
-                      // 左侧：返回箭头 + 页码指示器（挨在一起）
-                      Row(
-                        children: [
-                          // 返回箭头
-                          AnimatedSlide(
-                            offset: showControls
-                                ? Offset.zero
-                                : const Offset(-1.5, 0),
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                            child: AnimatedOpacity(
-                              opacity: showControls ? 1.0 : 0.0,
+                // ===== 顶部控制栏 =====
+                if (showControls)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 12,
+                    left: 16,
+                    right: 16,
+                    child: Stack(
+                      children: [
+                        // 左侧：返回箭头 + 页码
+                        Row(
+                          children: [
+                            AnimatedSlide(
+                              offset: showControls ? Offset.zero : const Offset(-1.5, 0),
                               duration: const Duration(milliseconds: 300),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(30),
-                                  onTap: () =>
-                                      Navigator.pop(context, currentIndex),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black38,
-                                      borderRadius: BorderRadius.circular(30),
+                              curve: Curves.easeOut,
+                              child: AnimatedOpacity(
+                                opacity: showControls ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 300),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(30),
+                                    onTap: () => Navigator.pop(context, currentIndex),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black38,
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                      child: const Icon(
+                                        Icons.arrow_back_ios_new,
+                                        color: Colors.white,
+                                        size: 26,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black54,
+                                            blurRadius: 4,
+                                            offset: Offset(0, 1),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    child: const Icon(
-                                      Icons.arrow_back_ios_new,
-                                      color: Colors.white,
-                                      size: 26,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black54,
-                                          blurRadius: 4,
-                                          offset: Offset(0, 1),
-                                        ),
-                                      ],
-                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          // 页码指示器
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white12,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              "${currentIndex + 1}/${_currentImages.length}",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white12,
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // 绝对居中：文件名 + 尺寸
-                      Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              currentItem['name'],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
+                              child: Text(
+                                "${currentIndex + 1}/${_currentImages.length}",
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (currentItem['w'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Text(
-                                  "${currentItem['w']} x ${currentItem['h']} px",
-                                  style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 10,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-
-                      // 右侧：播放/暂停 + 删除
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AnimatedBuilder(
-                              animation: _breatheController,
-                              builder: (ctx, child) => Opacity(
-                                opacity: isPlaying
-                                    ? _breatheController.value
-                                    : 1.0,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  icon: Icon(
-                                    isPlaying
-                                        ? Icons.pause_circle_filled
-                                        : Icons.play_circle_filled,
-                                    color: isPlaying
-                                        ? Colors.tealAccent
-                                        : Colors.white,
-                                  ),
-                                  iconSize: 28,
-                                  onPressed: _toggleAutoPlay,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: const Icon(
-                                Icons.drive_file_rename_outline,
-                                color: Colors.white,
-                              ),
-                              iconSize: 24,
-                              onPressed: _renameCurrentPhoto,
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                color: Colors.redAccent,
-                              ),
-                              iconSize: 24,
-                              onPressed: _deleteCurrentPhoto,
                             ),
                           ],
                         ),
-                      ),
-                    ],
+
+                        // 中间：标题
+                        Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                currentItem['name'],
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (currentItem['w'] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    "${currentItem['w']} x ${currentItem['h']} px",
+                                    style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+
+                        // 右侧：操作按钮
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedBuilder(
+                                animation: _breatheController,
+                                builder: (ctx, child) => Opacity(
+                                  opacity: isPlaying ? _breatheController.value : 1.0,
+                                  child: IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: Icon(
+                                      isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                      color: isPlaying ? Colors.tealAccent : Colors.white,
+                                    ),
+                                    iconSize: 28,
+                                    onPressed: _toggleAutoPlay,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              IconButton(
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                icon: const Icon(Icons.drive_file_rename_outline, color: Colors.white),
+                                iconSize: 24,
+                                onPressed: _renameCurrentPhoto,
+                              ),
+                              const SizedBox(width: 16),
+                              IconButton(
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                iconSize: 24,
+                                onPressed: _deleteCurrentPhoto,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
 
-              // 非移动端左右箭头导航（保持原有）
-              if (!isMobile) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: AnimatedSlide(
-                    offset: showControls ? Offset.zero : const Offset(-1.2, 0),
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    child: AnimatedOpacity(
-                      opacity: showControls ? 1.0 : 0.0,
+                if (!isMobile) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedSlide(
+                      offset: showControls ? Offset.zero : const Offset(-1.2, 0),
                       duration: const Duration(milliseconds: 250),
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 10),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back_ios,
-                            color: Colors.white24,
-                            size: 30,
-                          ),
-                          onPressed: () => _pageController.previousPage(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.ease,
+                      curve: Curves.easeInOut,
+                      child: AnimatedOpacity(
+                        opacity: showControls ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 250),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 10),
+                          child: IconButton(
+                            icon: const Icon(Icons.arrow_back_ios, color: Colors.white24, size: 30),
+                            onPressed: () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.ease),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: AnimatedSlide(
-                    offset: showControls ? Offset.zero : const Offset(1.2, 0),
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    child: AnimatedOpacity(
-                      opacity: showControls ? 1.0 : 0.0,
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: AnimatedSlide(
+                      offset: showControls ? Offset.zero : const Offset(1.2, 0),
                       duration: const Duration(milliseconds: 250),
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 10),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.arrow_forward_ios,
-                            color: Colors.white24,
-                            size: 30,
-                          ),
-                          onPressed: () => _pageController.nextPage(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.ease,
+                      curve: Curves.easeInOut,
+                      child: AnimatedOpacity(
+                        opacity: showControls ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 250),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: IconButton(
+                            icon: const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 30),
+                            onPressed: () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.ease),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
