@@ -41,6 +41,7 @@ class TVFocusableWidget extends StatelessWidget {
       shortcuts: {
         LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
         LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.space): const ActivateIntent(),
       },
       child: Builder(
         builder: (context) {

@@ -27,7 +27,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   late PageController _pageController;
   late int currentIndex;
   late List<dynamic> _currentImages;
-  
+
   // 管理每一页的缩放控制器
   final Map<int, PhotoViewController> _controllers = {};
 
@@ -40,7 +40,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   AnimationController? _resetController;
   Animation<Offset>? _offsetAnimation;
   Animation<double>? _scaleAnimation;
-  
+
   // 核心状态：是否处于放大状态
   bool _isZoomed = false;
 
@@ -65,11 +65,11 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     _pageController.dispose();
     _breatheController.dispose();
     _resetController?.dispose();
-    
+
     for (var controller in _controllers.values) {
       controller.dispose();
     }
-    
+
     super.dispose();
   }
 
@@ -87,9 +87,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
     final controller = _getController(currentIndex);
     double currentScale = controller.scale ?? 1.0;
-    
+
     // 向上滚动(dy<0)放大，向下滚动(dy>0)缩小
-    double zoomFactor = 0.08; 
+    double zoomFactor = 0.08;
     double delta = event.scrollDelta.dy > 0 ? -zoomFactor : zoomFactor;
     double newScale = currentScale + delta;
 
@@ -98,12 +98,12 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     if (newScale > 5.0) newScale = 5.0;
 
     controller.scale = newScale;
-    
+
     // 手动更新缩放状态（辅助 PhotoView 的状态回调）
     // 注意：这里阈值设为 1.0 可能不准确（取决于 initialScale），但在大多数 contained 模式下是有效的参考
     // 更准确的逻辑由 scaleStateChangedCallback 处理，这里主要处理滚轮的即时反馈
     if (newScale > 1.05 && !_isZoomed) {
-       setState(() => _isZoomed = true);
+      setState(() => _isZoomed = true);
     }
   }
 
@@ -162,7 +162,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   void _onVerticalDragEnd(DragEndDetails details) {
     if (_isZoomed) return;
-    
+
     final velocity = details.primaryVelocity ?? 0;
     final screenHeight = MediaQuery.of(context).size.height;
     final threshold = screenHeight * 0.15;
@@ -232,7 +232,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
           _currentImages.removeAt(currentIndex);
           _controllers[currentIndex]?.dispose();
           _controllers.remove(currentIndex);
-          _controllers.clear(); 
+          _controllers.clear();
 
           if (currentIndex >= _currentImages.length)
             currentIndex = _currentImages.length - 1;
@@ -323,27 +323,66 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     }
   }
 
-  void _handleKeyEvent(RawKeyEvent event) {
-    if (event is RawKeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.escape) {
-        Navigator.pop(context, currentIndex);
-      } else if (event.logicalKey == LogicalKeyboardKey.space) {
-        _toggleAutoPlay();
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        _pageController.nextPage(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        _pageController.previousPage(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      } else if (event.logicalKey == LogicalKeyboardKey.delete ||
-          event.logicalKey == LogicalKeyboardKey.backspace) {
-        _deleteCurrentPhoto();
-      }
+  KeyEventResult _handleKeyEvent(RawKeyEvent event) {
+    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+
+    // 1. 返回键：退出 (支持 Android 物理返回键 和 键盘 ESC)
+    if (key == LogicalKeyboardKey.goBack || key == LogicalKeyboardKey.escape) {
+      Navigator.pop(context, currentIndex);
+      return KeyEventResult.handled;
     }
+
+    // 2. 确认键：显示/隐藏控制栏
+    // 遥控器 OK 键通常映射为 select 或 enter
+    if (key == LogicalKeyboardKey.select || key == LogicalKeyboardKey.enter) {
+      _toggleControls();
+      return KeyEventResult.handled;
+    }
+
+    // 3. "三杠"菜单键：作为自动播放开关
+    // 遥控器的菜单键通常映射为 contextMenu
+    if (key == LogicalKeyboardKey.contextMenu ||
+        key == LogicalKeyboardKey.contextMenu) {
+      _toggleAutoPlay();
+      if (!showControls) {
+        setState(() {
+          showControls = true;
+          SystemChrome.setEnabledSystemUIMode(
+            SystemUiMode.manual,
+            overlays: SystemUiOverlay.values,
+          );
+        });
+      }
+      return KeyEventResult.handled;
+    }
+
+    // 4. 左右切换
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+      return KeyEventResult.handled;
+    }
+
+    // 5. 删除键 (可选，如果有键盘的话)
+    if (key == LogicalKeyboardKey.delete ||
+        key == LogicalKeyboardKey.backspace) {
+      _deleteCurrentPhoto();
+      return KeyEventResult.handled;
+    }
+
+    // 其他按键交由系统处理
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -387,7 +426,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                     onTap: _toggleControls,
                     // 【关键修改】如果处于缩放状态，将外层的拖动回调设为 null
                     // 这样手势事件就会穿透给 PhotoView，实现放大后的拖动（Pan）
-                    onVerticalDragUpdate: _isZoomed ? null : _onVerticalDragUpdate,
+                    onVerticalDragUpdate: _isZoomed
+                        ? null
+                        : _onVerticalDragUpdate,
                     onVerticalDragEnd: _isZoomed ? null : _onVerticalDragEnd,
                     child: Transform.translate(
                       offset: _dragOffset,
@@ -397,11 +438,14 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                           scrollPhysics: const BouncingScrollPhysics(),
                           // 监听缩放状态变化，更新 _isZoomed
                           scaleStateChangedCallback: (state) => setState(
-                            () => _isZoomed = state != PhotoViewScaleState.initial,
+                            () => _isZoomed =
+                                state != PhotoViewScaleState.initial,
                           ),
                           builder: (context, index) {
                             final item = _currentImages[index];
-                            final imgUrl = TaskManager().getImgUrl(item['path']);
+                            final imgUrl = TaskManager().getImgUrl(
+                              item['path'],
+                            );
                             return PhotoViewGalleryPageOptions(
                               imageProvider: CachedNetworkImageProvider(imgUrl),
                               initialScale: PhotoViewComputedScale.contained,
@@ -437,7 +481,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         Row(
                           children: [
                             AnimatedSlide(
-                              offset: showControls ? Offset.zero : const Offset(-1.5, 0),
+                              offset: showControls
+                                  ? Offset.zero
+                                  : const Offset(-1.5, 0),
                               duration: const Duration(milliseconds: 300),
                               curve: Curves.easeOut,
                               child: AnimatedOpacity(
@@ -447,7 +493,8 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                                   color: Colors.transparent,
                                   child: InkWell(
                                     borderRadius: BorderRadius.circular(30),
-                                    onTap: () => Navigator.pop(context, currentIndex),
+                                    onTap: () =>
+                                        Navigator.pop(context, currentIndex),
                                     child: Container(
                                       padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
@@ -473,14 +520,21 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                             ),
                             const SizedBox(width: 12),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white12,
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 "${currentIndex + 1}/${_currentImages.length}",
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                           ],
@@ -493,7 +547,11 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                             children: [
                               Text(
                                 currentItem['name'],
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -502,7 +560,11 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                                   padding: const EdgeInsets.only(top: 2),
                                   child: Text(
                                     "${currentItem['w']} x ${currentItem['h']} px",
-                                    style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace'),
+                                    style: const TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 10,
+                                      fontFamily: 'monospace',
+                                    ),
                                   ),
                                 ),
                             ],
@@ -518,13 +580,19 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                               AnimatedBuilder(
                                 animation: _breatheController,
                                 builder: (ctx, child) => Opacity(
-                                  opacity: isPlaying ? _breatheController.value : 1.0,
+                                  opacity: isPlaying
+                                      ? _breatheController.value
+                                      : 1.0,
                                   child: IconButton(
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
                                     icon: Icon(
-                                      isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                      color: isPlaying ? Colors.tealAccent : Colors.white,
+                                      isPlaying
+                                          ? Icons.pause_circle_filled
+                                          : Icons.play_circle_filled,
+                                      color: isPlaying
+                                          ? Colors.tealAccent
+                                          : Colors.white,
                                     ),
                                     iconSize: 28,
                                     onPressed: _toggleAutoPlay,
@@ -535,7 +603,10 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                               IconButton(
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
-                                icon: const Icon(Icons.drive_file_rename_outline, color: Colors.white),
+                                icon: const Icon(
+                                  Icons.drive_file_rename_outline,
+                                  color: Colors.white,
+                                ),
                                 iconSize: 24,
                                 onPressed: _renameCurrentPhoto,
                               ),
@@ -543,7 +614,10 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                               IconButton(
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.redAccent,
+                                ),
                                 iconSize: 24,
                                 onPressed: _deleteCurrentPhoto,
                               ),
@@ -558,7 +632,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                   Align(
                     alignment: Alignment.centerLeft,
                     child: AnimatedSlide(
-                      offset: showControls ? Offset.zero : const Offset(-1.2, 0),
+                      offset: showControls
+                          ? Offset.zero
+                          : const Offset(-1.2, 0),
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeInOut,
                       child: AnimatedOpacity(
@@ -567,8 +643,15 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         child: Padding(
                           padding: const EdgeInsets.only(left: 10),
                           child: IconButton(
-                            icon: const Icon(Icons.arrow_back_ios, color: Colors.white24, size: 30),
-                            onPressed: () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.ease),
+                            icon: const Icon(
+                              Icons.arrow_back_ios,
+                              color: Colors.white24,
+                              size: 30,
+                            ),
+                            onPressed: () => _pageController.previousPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.ease,
+                            ),
                           ),
                         ),
                       ),
@@ -586,8 +669,15 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         child: Padding(
                           padding: const EdgeInsets.only(right: 10),
                           child: IconButton(
-                            icon: const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 30),
-                            onPressed: () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.ease),
+                            icon: const Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.white24,
+                              size: 30,
+                            ),
+                            onPressed: () => _pageController.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.ease,
+                            ),
                           ),
                         ),
                       ),
