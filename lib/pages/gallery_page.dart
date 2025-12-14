@@ -35,6 +35,8 @@ class _GalleryPageState extends State<GalleryPage> {
   bool isLoading = true;
   String? errorMessage;
   final ScrollController _scrollController = ScrollController();
+  // 控制列表是否可滚动，用于在拖拽选择时锁定列表
+  ScrollPhysics _scrollPhysics = const AlwaysScrollableScrollPhysics();
 
   bool isSelectionMode = false;
   Set<String> selectedPaths = {};
@@ -100,7 +102,6 @@ class _GalleryPageState extends State<GalleryPage> {
           images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
         });
-        // 注意：移除了原本在这里的 FocusScope 请求，改为在各个 Grid 中使用 autofocus
       }
     } catch (e) {
       if (mounted) {
@@ -138,7 +139,6 @@ class _GalleryPageState extends State<GalleryPage> {
     return TaskManager().getImgUrl(coverPath);
   }
 
-  // === 文件夹网格 (包含 autofocus 逻辑) ===
   Widget _buildFolderGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: kSpacing),
@@ -155,7 +155,6 @@ class _GalleryPageState extends State<GalleryPage> {
           final hasCover = coverPath != null && coverPath.isNotEmpty;
           final coverUrl = hasCover ? TaskManager().getImgUrl(coverPath) : "";
 
-          // 【修复】只有第一个文件夹自动获焦
           bool shouldAutofocus = (index == 0);
 
           return TVFocusableWidget(
@@ -259,7 +258,6 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  // === 视频网格 (包含 autofocus 逻辑) ===
   Widget _buildVideoGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -278,7 +276,6 @@ class _GalleryPageState extends State<GalleryPage> {
           final isSelected = selectedPaths.contains(path);
           final thumbUrl = _getThumbUrl(item);
 
-          // 【修复】如果没有文件夹，且是第一个视频，则自动获焦
           bool shouldAutofocus = (index == 0 && folders.isEmpty);
 
           return TVFocusableWidget(
@@ -582,21 +579,22 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  void _onPointerDown(PointerDownEvent event) {
-    if (!isSelectionMode) return;
-    final isShiftPressed =
-        HardwareKeyboard.instance.logicalKeysPressed.contains(
-          LogicalKeyboardKey.shiftLeft,
-        ) ||
-        HardwareKeyboard.instance.logicalKeysPressed.contains(
-          LogicalKeyboardKey.shiftRight,
-        );
-    if (isShiftPressed) return;
+  // === 优化后的手势选择逻辑 ===
+  // 使用 GestureDetector 捕获水平拖拽，避免与垂直滚动冲突
 
-    final hitIndex = _hitTestImageIndex(event.position);
+  void _onDragSelectionStart(DragStartDetails details) {
+    if (!isSelectionMode) return;
+
+    // 只有在多选模式下，且手势为水平滑动时，才启动框选逻辑
+    // GestureDetector 的 onHorizontalDragStart 保证了这是水平意图
+
+    final hitIndex = _hitTestImageIndex(details.globalPosition);
     if (hitIndex != null) {
       setState(() {
         _isDragSelecting = true;
+        // 锁定滚动，防止拖动选择时列表乱动
+        _scrollPhysics = const NeverScrollableScrollPhysics();
+
         _dragStartIndex = hitIndex;
         _dragLastIndex = hitIndex;
         _dragStartSelectedSnapshot = Set.from(selectedPaths);
@@ -612,10 +610,13 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  void _onPointerMove(PointerMoveEvent event) {
+  void _onDragSelectionUpdate(DragUpdateDetails details) {
     if (!_isDragSelecting || _dragStartIndex == null) return;
-    _handleAutoScroll(event.position);
-    final hitIndex = _hitTestImageIndex(event.position);
+
+    // 依然支持拖到边缘自动滚动
+    _handleAutoScroll(details.globalPosition);
+
+    final hitIndex = _hitTestImageIndex(details.globalPosition);
     if (hitIndex != null && hitIndex != _dragLastIndex) {
       setState(() {
         _dragLastIndex = hitIndex;
@@ -625,10 +626,12 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  void _onPointerUp(PointerUpEvent event) {
+  void _onDragSelectionEnd(dynamic details) {
     if (_isDragSelecting) {
       setState(() {
         _isDragSelecting = false;
+        // 恢复列表滚动
+        _scrollPhysics = const AlwaysScrollableScrollPhysics();
         _dragStartIndex = null;
         _dragLastIndex = null;
         _autoScrollTimer?.cancel();
@@ -1589,7 +1592,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  // === 核心逻辑: 计算图片行布局 (包含 autofocus 逻辑) ===
   List<Widget> _computeJustifiedRows(
     double screenWidth,
     List<dynamic> items, {
@@ -1665,7 +1667,6 @@ class _GalleryPageState extends State<GalleryPage> {
     return rows;
   }
 
-  // === 核心逻辑: 构建每一行图片 (包含 autofocus 逻辑) ===
   Widget _buildJustifiedRow(
     List<dynamic> rowItems,
     double height,
@@ -1692,7 +1693,6 @@ class _GalleryPageState extends State<GalleryPage> {
       int currentGlobalIndex = globalStartIndex + currentLocalIndex;
       bool isSelected = selectedPaths.contains(path);
 
-      // 【修复】只有当没有文件夹且没有视频，且是第一张图时，自动获焦
       bool shouldAutofocus =
           (currentLocalIndex == 0) && folders.isEmpty && videos.isEmpty;
 
@@ -1956,14 +1956,13 @@ class _GalleryPageState extends State<GalleryPage> {
             IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData),
         ],
       ),
-      body: Listener(
+      // 使用 GestureDetector 包裹 CustomScrollView，专门处理水平滑动选择
+      body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (e) =>
-            _isPointerInContentArea(e.position) ? _onPointerDown(e) : null,
-        onPointerMove: (e) =>
-            _isPointerInContentArea(e.position) ? _onPointerMove(e) : null,
-        onPointerUp: (e) =>
-            _isPointerInContentArea(e.position) ? _onPointerUp(e) : null,
+        onHorizontalDragStart: _onDragSelectionStart,
+        onHorizontalDragUpdate: _onDragSelectionUpdate,
+        onHorizontalDragEnd: _onDragSelectionEnd,
+        onHorizontalDragCancel: () => _onDragSelectionEnd(null),
         child: isLoading
             ? const Center(child: CircularProgressIndicator(color: Colors.teal))
             : errorMessage != null
@@ -1976,9 +1975,14 @@ class _GalleryPageState extends State<GalleryPage> {
             : CustomScrollView(
                 controller: _scrollController,
                 cacheExtent: 2000.0,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
+                // 根据是否正在拖拽选择来动态调整 physics，防止选择时列表滚动
+                physics: _scrollPhysics.parent == null
+                    ? (_isDragSelecting
+                          ? const NeverScrollableScrollPhysics()
+                          : const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ))
+                    : _scrollPhysics,
                 slivers: [
                   if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
                   if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
