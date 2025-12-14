@@ -329,7 +329,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     final key = event.logicalKey;
 
     // 1. 返回键：退出 (支持 Android 物理返回键 和 键盘 ESC)
-    if (key == LogicalKeyboardKey.goBack || key == LogicalKeyboardKey.escape) {
+    if (key == LogicalKeyboardKey.escape) {
       Navigator.pop(context, currentIndex);
       return KeyEventResult.handled;
     }

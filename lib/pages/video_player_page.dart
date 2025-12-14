@@ -41,7 +41,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
     final key = event.logicalKey;
 
-    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape) {
       Navigator.pop(context);
       return KeyEventResult.handled;
     }
