@@ -50,10 +50,6 @@ class GalleryApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Gallery Pro',
-      shortcuts: {
-        LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
-        LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
-      },
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F12),
         textTheme: ThemeData.dark().textTheme.apply(
