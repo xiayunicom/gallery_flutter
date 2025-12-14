@@ -16,6 +16,7 @@ import '../widgets/tv_focusable_widget.dart';
 import 'video_player_page.dart';
 import 'photo_preview_page.dart';
 
+// === 必须保留这个类定义，否则 main.dart 会报错 ===
 class GalleryPage extends StatefulWidget {
   final String path;
   const GalleryPage({super.key, this.path = ""});
@@ -99,11 +100,7 @@ class _GalleryPageState extends State<GalleryPage> {
           images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
         });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            FocusScope.of(context).requestFocus();
-          }
-        });
+        // 注意：移除了原本在这里的 FocusScope 请求，改为在各个 Grid 中使用 autofocus
       }
     } catch (e) {
       if (mounted) {
@@ -132,24 +129,137 @@ class _GalleryPageState extends State<GalleryPage> {
     } catch (_) {}
   }
 
-  // =========================================================
-  // 新增 helper: 智能解析封面/缩略图 URL
-  // =========================================================
   String _getThumbUrl(dynamic item) {
     final String? coverPath = item['cover_path'];
     if (coverPath == null || coverPath.isEmpty) return "";
-
-    // 如果是以 /api/ 开头，说明是后端生成的视频缩略图 API，直接拼 serverUrl
     if (coverPath.startsWith('/api/')) {
       return "$serverUrl$coverPath";
     }
-    // 否则是普通文件路径（如文件夹封面），走 getImgUrl 处理
     return TaskManager().getImgUrl(coverPath);
   }
 
-  // =========================================================
-  // 修改：_buildVideoGrid 使用图片作为背景
-  // =========================================================
+  // === 文件夹网格 (包含 autofocus 逻辑) ===
+  Widget _buildFolderGrid(int crossAxisCount) {
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: kSpacing,
+          crossAxisSpacing: kSpacing,
+          childAspectRatio: 2 / 3,
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final item = folders[index];
+          final String? coverPath = item['cover_path'];
+          final hasCover = coverPath != null && coverPath.isNotEmpty;
+          final coverUrl = hasCover ? TaskManager().getImgUrl(coverPath) : "";
+
+          // 【修复】只有第一个文件夹自动获焦
+          bool shouldAutofocus = (index == 0);
+
+          return TVFocusableWidget(
+            key: ValueKey(item['path']),
+            autofocus: shouldAutofocus,
+            onTap: () {
+              if (isSelectionMode) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Cannot open folder in selection mode"),
+                  ),
+                );
+              } else {
+                Navigator.push(
+                  context,
+                  CupertinoPageRoute(
+                    builder: (context) => GalleryPage(path: item['path']),
+                  ),
+                );
+              }
+            },
+            onLongPress: () => _showFolderMenu(item),
+            onSecondaryTap: () => _showFolderMenu(item),
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF252528),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (hasCover)
+                      CachedNetworkImage(
+                        imageUrl: coverUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        memCacheHeight: 400,
+                        placeholder: (context, url) =>
+                            Container(color: const Color(0xFF202023)),
+                        errorWidget: (context, url, error) => const Center(
+                          child: Icon(
+                            Icons.folder,
+                            size: 40,
+                            color: Colors.amber,
+                          ),
+                        ),
+                      ),
+                    if (!hasCover)
+                      const Center(
+                        child: Icon(
+                          Icons.folder,
+                          size: 40,
+                          color: Colors.amber,
+                        ),
+                      ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: 60,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.9),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      left: 6,
+                      right: 6,
+                      child: Text(
+                        item['name'],
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }, childCount: folders.length),
+      ),
+    );
+  }
+
+  // === 视频网格 (包含 autofocus 逻辑) ===
   Widget _buildVideoGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -166,12 +276,14 @@ class _GalleryPageState extends State<GalleryPage> {
           final fileUrl = TaskManager().getImgUrl(path);
           final currentGlobalIndex = index;
           final isSelected = selectedPaths.contains(path);
-
-          // 获取缩略图 URL
           final thumbUrl = _getThumbUrl(item);
+
+          // 【修复】如果没有文件夹，且是第一个视频，则自动获焦
+          bool shouldAutofocus = (index == 0 && folders.isEmpty);
 
           return TVFocusableWidget(
             key: ValueKey(path),
+            autofocus: shouldAutofocus,
             isSelected: isSelected,
             onTap: () {
               final isShiftPressed =
@@ -214,24 +326,21 @@ class _GalleryPageState extends State<GalleryPage> {
             child: Hero(
               tag: isSelectionMode ? "no-hero-$path" : "video-$path",
               child: Stack(
-                fit: StackFit.expand, // 确保子元素填满
+                fit: StackFit.expand,
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: Container(
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF202023), // 加载前的底色
-                      ),
+                      decoration: const BoxDecoration(color: Color(0xFF202023)),
                       child: Stack(
                         alignment: Alignment.center,
                         fit: StackFit.expand,
                         children: [
-                          // 1. 缩略图层 (替换了原来的纯 Gradient)
                           if (thumbUrl.isNotEmpty)
                             CachedNetworkImage(
                               imageUrl: thumbUrl,
                               fit: BoxFit.cover,
-                              memCacheHeight: 400, // 内存优化
+                              memCacheHeight: 400,
                               placeholder: (context, url) => Container(
                                 decoration: const BoxDecoration(
                                   gradient: LinearGradient(
@@ -265,7 +374,6 @@ class _GalleryPageState extends State<GalleryPage> {
                               ),
                             )
                           else
-                            // 无缩略图时的兜底背景
                             Container(
                               decoration: const BoxDecoration(
                                 gradient: LinearGradient(
@@ -278,40 +386,31 @@ class _GalleryPageState extends State<GalleryPage> {
                                 ),
                               ),
                             ),
-
-                          // 2. 黑色遮罩 (让文字和图标在任何图片上都可见)
                           Container(
                             decoration: const BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black54, // 底部渐变黑
-                                ],
+                                colors: [Colors.transparent, Colors.black54],
                                 stops: [0.6, 1.0],
                               ),
                             ),
                           ),
-
-                          // 3. 装饰水印 (半透明大图标)
                           Positioned(
                             right: -5,
                             bottom: -5,
                             child: Icon(
                               Icons.videocam,
                               size: 35,
-                              color: Colors.white.withOpacity(0.1), // 稍微调亮一点点
+                              color: Colors.white.withOpacity(0.1),
                             ),
                           ),
-
-                          // 4. 播放按钮
                           Center(
                             child: Container(
                               padding: const EdgeInsets.all(6),
                               decoration: const BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Colors.black54, // 加深背景让它更明显
+                                color: Colors.black54,
                               ),
                               child: const Icon(
                                 Icons.play_arrow,
@@ -320,8 +419,6 @@ class _GalleryPageState extends State<GalleryPage> {
                               ),
                             ),
                           ),
-
-                          // 5. 文件名
                           Positioned(
                             bottom: 6,
                             left: 6,
@@ -344,8 +441,6 @@ class _GalleryPageState extends State<GalleryPage> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-
-                          // 6. VIDEO 标识
                           Positioned(
                             top: 4,
                             right: 4,
@@ -394,7 +489,6 @@ class _GalleryPageState extends State<GalleryPage> {
                   Positioned(
                     top: 4,
                     right: 4,
-                    // 传入 path，组件内部会自动去后端获取分辨率
                     child: VideoResolutionTag(path: path),
                   ),
                 ],
@@ -436,19 +530,13 @@ class _GalleryPageState extends State<GalleryPage> {
       if (isShiftPressed) {
         isSelectionMode = true;
         if (_lastInteractionIndex != null) {
-          // === 修改开始：获取起始项（锚点）的选中状态 ===
           final allMedia = combinedMedia;
-          bool targetState = true; // 默认为选中
-
-          // 检查上一次点击的那个 item 目前是否被选中
+          bool targetState = true;
           if (_lastInteractionIndex! < allMedia.length) {
             final lastPath = allMedia[_lastInteractionIndex!]['path'];
             targetState = selectedPaths.contains(lastPath);
           }
-
-          // 将目标状态传递给 _selectRange
           _selectRange(_lastInteractionIndex!, index, targetState);
-          // === 修改结束 ===
         } else {
           if (!selectedPaths.contains(path)) selectedPaths.add(path);
           _lastInteractionIndex = index;
@@ -471,9 +559,9 @@ class _GalleryPageState extends State<GalleryPage> {
       if (i < allMedia.length) {
         final p = allMedia[i]['path'];
         if (targetState) {
-          selectedPaths.add(p); // 选中
+          selectedPaths.add(p);
         } else {
-          selectedPaths.remove(p); // 反选（移除）
+          selectedPaths.remove(p);
         }
       }
     }
@@ -716,17 +804,13 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _renameSelected() async {
     if (selectedPaths.length != 1) return;
-
     final String path = selectedPaths.first;
-    // 从 combinedMedia 中找到对应的 item 以获取当前名称
     final item = combinedMedia.firstWhere(
       (e) => e['path'] == path,
       orElse: () => null,
     );
     if (item == null) return;
-
     final String currentName = item['name'];
-
     TextEditingController controller = TextEditingController(text: currentName);
 
     String? newName = await showDialog(
@@ -768,8 +852,6 @@ class _GalleryPageState extends State<GalleryPage> {
           '$serverUrl/api/rename',
           data: FormData.fromMap({'path': path, 'name': newName}),
         );
-
-        // 重命名成功后，退出选择模式并刷新
         setState(() {
           isSelectionMode = false;
           selectedPaths.clear();
@@ -1004,8 +1086,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  // ... 在 _GalleryPageState 类中
-
   Future<void> _organizeFolderDialog(dynamic folder) async {
     bool? confirm = await showDialog(
       context: context,
@@ -1232,20 +1312,15 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildBreadcrumbs() {
-    // 1. 如果是根目录，直接显示 Home
     if (widget.path.isEmpty) {
       return const Text("Home", style: TextStyle(fontWeight: FontWeight.bold));
     }
-
-    // 2. 解析路径层级
     List<String> parts = widget.path
         .split('/')
         .where((p) => p.isNotEmpty)
         .toList();
 
     List<Widget> crumbs = [];
-
-    // 3. 添加 Home 图标（点击回退到根）
     crumbs.add(
       InkWell(
         onTap: () {
@@ -1259,18 +1334,13 @@ class _GalleryPageState extends State<GalleryPage> {
       ),
     );
 
-    // 4. 遍历路径层级生成面包屑
     for (int i = 0; i < parts.length; i++) {
-      // 添加分隔符
       crumbs.add(const Icon(Icons.chevron_right, size: 16, color: Colors.grey));
-
       bool isLast = i == parts.length - 1;
       String folderName = parts[i];
-
       Widget textLabel = Text(
         folderName,
         style: TextStyle(
-          // 末尾节点高亮白色，中间节点灰白
           color: isLast ? Colors.white : Colors.white70,
           fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
           fontSize: 16,
@@ -1278,7 +1348,6 @@ class _GalleryPageState extends State<GalleryPage> {
       );
 
       if (isLast) {
-        // 当前所在目录（不可点击）
         crumbs.add(
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
@@ -1286,13 +1355,10 @@ class _GalleryPageState extends State<GalleryPage> {
           ),
         );
       } else {
-        // 中间目录（可点击，回退 N 层）
         crumbs.add(
           InkWell(
             borderRadius: BorderRadius.circular(4),
             onTap: () {
-              // 计算需要 pop 多少次才能回到该层级
-              // 例如：A/B/C (length=3), 点击 A (index=0) -> 需要 pop (3-1-0) = 2 次
               int popCount = parts.length - 1 - i;
               for (int k = 0; k < popCount; k++) {
                 if (Navigator.canPop(context)) {
@@ -1308,8 +1374,6 @@ class _GalleryPageState extends State<GalleryPage> {
         );
       }
     }
-
-    // 5. 支持横向滚动，防止路径过长溢出
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -1319,9 +1383,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  double _calculateSectionTitleHeight() {
-    return 24 + 11 + 8 + 20;
-  }
+  double _calculateSectionTitleHeight() => 24 + 11 + 8 + 20;
 
   double _calculateFoldersSectionHeight(int crossAxisCount) {
     if (folders.isEmpty) return 0.0;
@@ -1338,83 +1400,21 @@ class _GalleryPageState extends State<GalleryPage> {
     return gridHeight + _calculateSectionTitleHeight();
   }
 
-  // 新增：专门计算视频 Grid 区域的高度
-  // 逻辑必须与 _buildVideoGrid 中的 SliverGridDelegateWithFixedCrossAxisCount 保持一致
   double _calculateVideosSectionHeight(int crossAxisCount) {
     if (videos.isEmpty) return 0.0;
-
-    // _buildVideoGrid 中 Padding 是 symmetric(horizontal: 4)，所以总占用 8
     const double horizontalPadding = 8.0;
     const double spacing = 4.0;
-
     final double screenWidth = MediaQuery.of(context).size.width;
     final double contentWidth = screenWidth - horizontalPadding;
-
-    // 计算单个 Item 的宽度
     final double itemWidth =
         (contentWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
-
-    // 宽高比是 16/9，所以 高度 = 宽度 * 9 / 16
     final double itemHeight = itemWidth * 9 / 16;
-
-    // 计算行数
     final int rowCount = (videos.length / crossAxisCount).ceil();
-
-    // 总高度 = (行数 * 单行高) + (间距 * (行数-1))
     double gridHeight = rowCount * itemHeight;
     if (rowCount > 1) {
       gridHeight += (rowCount - 1) * spacing;
     }
-
     return gridHeight + _calculateSectionTitleHeight();
-  }
-
-  double _calculateMediaSectionHeight(List<dynamic> items, double screenWidth) {
-    if (items.isEmpty) return 0.0;
-
-    double targetRowHeight = 300.0;
-    if (screenWidth >= 600 && screenWidth < 1400) targetRowHeight = 360.0;
-
-    const double spacing = kSpacing;
-    final double contentWidth = screenWidth - (spacing * 2);
-
-    double totalHeight = 0.0;
-
-    int rowStartImageIdx = 0;
-    double currentRowAspectSum = 0.0;
-
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      double w = (item['w'] as num?)?.toDouble() ?? 100;
-      double h = (item['h'] as num?)?.toDouble() ?? 100;
-      if (w <= 0 || h <= 0) {
-        w = 100;
-        h = 100;
-      }
-      double aspectRatio = w / h;
-
-      currentRowAspectSum += aspectRatio;
-      double totalGapWidth = (i - rowStartImageIdx + 1 - 1) * spacing;
-      double projectedHeight =
-          (contentWidth - totalGapWidth) / currentRowAspectSum;
-      bool isLast = i == items.length - 1;
-
-      if (projectedHeight <= targetRowHeight || isLast) {
-        double finalHeight = projectedHeight;
-        if (isLast && projectedHeight > targetRowHeight)
-          finalHeight = targetRowHeight;
-        else if (projectedHeight > targetRowHeight * 1.5)
-          finalHeight = targetRowHeight;
-
-        totalHeight += (finalHeight + spacing);
-
-        if (!isLast) {
-          rowStartImageIdx = i + 1;
-          currentRowAspectSum = 0.0;
-        }
-      }
-    }
-    return totalHeight + _calculateSectionTitleHeight();
   }
 
   void _scrollToImage(
@@ -1514,7 +1514,6 @@ class _GalleryPageState extends State<GalleryPage> {
     if (jump) {
       final double viewportHeight =
           _scrollController.position.viewportDimension;
-
       double centerOffset =
           itemTop - (viewportHeight / 2) + (actualRowHeight / 2);
       _scrollController.jumpTo(
@@ -1581,16 +1580,307 @@ class _GalleryPageState extends State<GalleryPage> {
     await _silentRefresh();
 
     if (result != null && result >= 0 && result < images.length) {
-      // 关键：更新全局记录的最后交互索引
       setState(() {
         _lastInteractionIndex = result;
       });
-
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // 返回时带动画稍微自然一点，或者根据喜好改成 jump: true
         _scrollToImage(result, smartScroll: true);
       });
     }
+  }
+
+  // === 核心逻辑: 计算图片行布局 (包含 autofocus 逻辑) ===
+  List<Widget> _computeJustifiedRows(
+    double screenWidth,
+    List<dynamic> items, {
+    required int globalStartIndex,
+  }) {
+    if (items.isEmpty) return [];
+
+    double targetRowHeight = 300.0;
+    if (screenWidth >= 600 && screenWidth < 1400) {
+      targetRowHeight = 360.0;
+    }
+
+    const double spacing = kSpacing;
+    final double contentWidth = screenWidth - (spacing * 2);
+    List<Widget> rows = [];
+    List<dynamic> currentRowItems = [];
+
+    int currentRowStartLocalIndex = 0;
+    double currentRowAspectRatioSum = 0.0;
+    double? previousRowFinalHeight;
+
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      double w = (item['w'] as num?)?.toDouble() ?? 100;
+      double h = (item['h'] as num?)?.toDouble() ?? 100;
+      if (w <= 0 || h <= 0) {
+        w = 100;
+        h = 100;
+      }
+      double aspectRatio = w / h;
+
+      currentRowItems.add(item);
+      currentRowAspectRatioSum += aspectRatio;
+
+      double totalGapWidth = (currentRowItems.length - 1) * spacing;
+      double projectedHeight =
+          (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
+
+      if (projectedHeight <= targetRowHeight || i == items.length - 1) {
+        bool isLastRow = i == items.length - 1;
+        double finalHeight = projectedHeight;
+
+        if (isLastRow) {
+          double referenceHeight = previousRowFinalHeight ?? targetRowHeight;
+          if (projectedHeight > referenceHeight) {
+            finalHeight = referenceHeight;
+          } else {
+            finalHeight = projectedHeight;
+          }
+        } else {
+          if (finalHeight > targetRowHeight * 1.5) {
+            finalHeight = targetRowHeight;
+          }
+        }
+
+        rows.add(
+          _buildJustifiedRow(
+            currentRowItems,
+            finalHeight,
+            spacing,
+            isLastRow: isLastRow,
+            localStartIndex: currentRowStartLocalIndex,
+            globalStartIndex: globalStartIndex,
+          ),
+        );
+
+        previousRowFinalHeight = finalHeight;
+        currentRowItems = [];
+        currentRowAspectRatioSum = 0.0;
+        currentRowStartLocalIndex = i + 1;
+      }
+    }
+    return rows;
+  }
+
+  // === 核心逻辑: 构建每一行图片 (包含 autofocus 逻辑) ===
+  Widget _buildJustifiedRow(
+    List<dynamic> rowItems,
+    double height,
+    double spacing, {
+    required bool isLastRow,
+    required int localStartIndex,
+    required int globalStartIndex,
+  }) {
+    List<Widget> children = [];
+    for (int i = 0; i < rowItems.length; i++) {
+      final item = rowItems[i];
+      final path = item['path'];
+      final fileUrl = TaskManager().getImgUrl(path);
+      final isVideo = item['type'] == 'video';
+      final thumbUrl = _getThumbUrl(item);
+
+      double w = (item['w'] as num?)?.toDouble() ?? 100;
+      double h = (item['h'] as num?)?.toDouble() ?? 100;
+      if (w <= 0) w = 100;
+      if (h <= 0) h = 100;
+
+      double itemWidth = height * (w / h);
+      int currentLocalIndex = localStartIndex + i;
+      int currentGlobalIndex = globalStartIndex + currentLocalIndex;
+      bool isSelected = selectedPaths.contains(path);
+
+      // 【修复】只有当没有文件夹且没有视频，且是第一张图时，自动获焦
+      bool shouldAutofocus =
+          (currentLocalIndex == 0) && folders.isEmpty && videos.isEmpty;
+
+      children.add(
+        MetaData(
+          metaData: currentGlobalIndex,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: itemWidth,
+            height: height,
+            child: TVFocusableWidget(
+              autofocus: shouldAutofocus,
+              isSelected: isSelected,
+              key: ValueKey(path),
+              onTap: () {
+                final isShiftPressed =
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftLeft,
+                    ) ||
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftRight,
+                    );
+                if (isSelectionMode || isShiftPressed) {
+                  _handleTapSelection(currentGlobalIndex, path);
+                } else {
+                  if (isVideo) {
+                    Navigator.push(
+                      context,
+                      CupertinoPageRoute(
+                        builder: (context) =>
+                            VideoPlayerPage(videoUrl: fileUrl),
+                      ),
+                    );
+                  } else {
+                    int imageIndex = currentLocalIndex;
+                    setState(() {
+                      _lastInteractionIndex = currentGlobalIndex;
+                    });
+                    _openPreview(imageIndex);
+                  }
+                }
+              },
+              onSecondaryTap: () {
+                if (!isSelectionMode) {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(path);
+                    _lastInteractionIndex = currentGlobalIndex;
+                  });
+                }
+              },
+              onLongPress: () {
+                if (!isSelectionMode) {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(path);
+                    _lastInteractionIndex = currentGlobalIndex;
+                  });
+                  HapticFeedback.mediumImpact();
+                }
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      color: const Color(0xFF202023),
+                      child: isVideo
+                          ? Stack(
+                              alignment: Alignment.center,
+                              fit: StackFit.expand,
+                              children: [
+                                if (thumbUrl.isNotEmpty)
+                                  CachedNetworkImage(
+                                    imageUrl: thumbUrl,
+                                    fit: BoxFit.cover,
+                                    memCacheHeight: 400,
+                                    placeholder: (context, url) => Container(
+                                      color: const Color(0xFF202023),
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Color(0xFF2C2C2E),
+                                          Color(0xFF1C1C1E),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                    ),
+                                  ),
+                                Container(color: Colors.black26),
+                                const Icon(
+                                  Icons.play_arrow,
+                                  color: Colors.white,
+                                  size: 32,
+                                ),
+                              ],
+                            )
+                          : CachedNetworkImage(
+                              imageUrl: fileUrl,
+                              memCacheHeight: 1000,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) =>
+                                  Container(color: const Color(0xFF202023)),
+                              errorWidget: (context, url, error) =>
+                                  const Icon(Icons.error),
+                            ),
+                    ),
+                  ),
+                  if (isSelectionMode)
+                    Container(
+                      color: isSelected ? Colors.black45 : Colors.transparent,
+                      child: Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            color: isSelected
+                                ? Colors.tealAccent
+                                : Colors.white70,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (i < rowItems.length - 1) children.add(SizedBox(width: spacing));
+    }
+
+    return Container(
+      margin: EdgeInsets.only(bottom: spacing),
+      height: height,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) => SliverToBoxAdapter(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.grey,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.5,
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildBottomBtn(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    Color color = Colors.white,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1599,10 +1889,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (_lastScreenWidth != null &&
         (screenWidth - _lastScreenWidth!).abs() > 1.0) {
-      // 如果宽度变化超过 1 像素（避免浮点数微小误差），且有选中的/最后交互的图
       if (_lastInteractionIndex != null) {
-        // 使用 addPostFrameCallback 确保在这一帧布局完成后再跳转
-        // 否则此时计算的高度可能还是旧的
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollToImage(_lastInteractionIndex!, jump: true);
         });
@@ -1693,16 +1980,11 @@ class _GalleryPageState extends State<GalleryPage> {
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
-                  // 1. FOLDERS
                   if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
                   if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
-
-                  // 2. VIDEOS
                   if (videos.isNotEmpty)
                     _buildSectionTitle("VIDEOS (${videos.length})"),
                   if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
-
-                  // 3. IMAGES
                   if (images.isNotEmpty)
                     _buildSectionTitle("IMAGES (${images.length})"),
                   if (images.isNotEmpty)
@@ -1715,12 +1997,10 @@ class _GalleryPageState extends State<GalleryPage> {
                         ),
                       ),
                     ),
-
                   const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 ],
               ),
       ),
-      // ... inside Scaffold
       bottomNavigationBar: isSelectionMode
           ? Container(
               color: const Color(0xFF18181B),
@@ -1740,15 +2020,13 @@ class _GalleryPageState extends State<GalleryPage> {
                         "Right +90°",
                         () => _rotateSelected(90),
                       ),
-                      // --- 新增逻辑: 只有选中 1 个时才显示重命名按钮 ---
                       if (selectedPaths.length == 1)
                         _buildBottomBtn(
                           Icons.drive_file_rename_outline,
                           "Rename",
                           _renameSelected,
-                          color: Colors.blueAccent, // 用蓝色区分一下
+                          color: Colors.blueAccent,
                         ),
-                      // -------------------------------------------
                       _buildBottomBtn(
                         Icons.delete,
                         "Delete",
@@ -1763,536 +2041,8 @@ class _GalleryPageState extends State<GalleryPage> {
           : null,
     );
   }
-
-  Widget _buildBottomBtn(
-    IconData icon,
-    String label,
-    VoidCallback onTap, {
-    Color color = Colors.white,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: color, fontSize: 12)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 修改：接受具体的 items 列表和全局起始索引
-  // ... 在 _GalleryPageState 类中
-
-  List<Widget> _computeJustifiedRows(
-    double screenWidth,
-    List<dynamic> items, {
-    required int globalStartIndex,
-  }) {
-    if (items.isEmpty) return [];
-
-    double targetRowHeight = 300.0;
-    if (screenWidth >= 600 && screenWidth < 1400) {
-      targetRowHeight = 360.0;
-    }
-
-    const double spacing = kSpacing;
-    final double contentWidth = screenWidth - (spacing * 2);
-    List<Widget> rows = [];
-    List<dynamic> currentRowItems = [];
-
-    int currentRowStartLocalIndex = 0;
-    double currentRowAspectRatioSum = 0.0;
-
-    // 记录上一行的最终高度
-    double? previousRowFinalHeight;
-
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      double w = (item['w'] as num?)?.toDouble() ?? 100;
-      double h = (item['h'] as num?)?.toDouble() ?? 100;
-      if (w <= 0 || h <= 0) {
-        w = 100;
-        h = 100;
-      }
-      double aspectRatio = w / h;
-
-      currentRowItems.add(item);
-      currentRowAspectRatioSum += aspectRatio;
-
-      double totalGapWidth = (currentRowItems.length - 1) * spacing;
-
-      // 计算：如果当前这些图要填满屏幕宽度，需要多高？
-      double projectedHeight =
-          (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
-
-      // 判断是否需要换行（高度小于目标值）或者已经是最后一张图
-      if (projectedHeight <= targetRowHeight || i == items.length - 1) {
-        bool isLastRow = i == items.length - 1;
-        double finalHeight = projectedHeight;
-
-        // --- 核心优化逻辑 (修正版) ---
-        if (isLastRow) {
-          // 获取参考高度：优先用上一行的高度，如果没有（比如只有一行），则用目标高度
-          double referenceHeight = previousRowFinalHeight ?? targetRowHeight;
-
-          // 逻辑说明：
-          // projectedHeight 是"填满屏幕所需的高度"。
-          // 如果 projectedHeight > referenceHeight，说明图片不够密，需要拉得很高才能填满屏幕。
-          // 这种情况下，我们不让它填满，而是强制压回 referenceHeight，让右边留白。
-          if (projectedHeight > referenceHeight) {
-            finalHeight = referenceHeight;
-          } else {
-            // 如果 projectedHeight <= referenceHeight，说明图片足够多，
-            // 甚至比上一行还密（高度更小）。
-            // 这种情况下，我们允许它填满屏幕（Standard Justified Behavior），
-            // 否则如果强制用 referenceHeight，图片宽度加起来会超过屏幕宽度导致溢出。
-            finalHeight = projectedHeight;
-          }
-        } else {
-          // 不是最后一行，必须填满
-          // 限制最大高度，防止极端长图（全景图）导致单行高度过大
-          if (finalHeight > targetRowHeight * 1.5) {
-            finalHeight = targetRowHeight;
-          }
-        }
-        // --- 逻辑结束 ---
-
-        rows.add(
-          _buildJustifiedRow(
-            currentRowItems,
-            finalHeight,
-            spacing,
-            isLastRow: isLastRow,
-            localStartIndex: currentRowStartLocalIndex,
-            globalStartIndex: globalStartIndex,
-          ),
-        );
-
-        // 只有当这一行不是"为了填满而强制压缩"的情况下，才记录为参考高度
-        // (通常记录 finalHeight 即可，但在极端比例下也可以加判断，这里直接记录即可)
-        previousRowFinalHeight = finalHeight;
-
-        currentRowItems = [];
-        currentRowAspectRatioSum = 0.0;
-        currentRowStartLocalIndex = i + 1;
-      }
-    }
-    return rows;
-  }
-
-  // =========================================================
-  // 修改：_buildJustifiedRow 也需要适配视频封面逻辑
-  // =========================================================
-  Widget _buildJustifiedRow(
-    List<dynamic> rowItems,
-    double height,
-    double spacing, {
-    required bool isLastRow,
-    required int localStartIndex, // 这一行第一个元素在 items 中的索引
-    required int globalStartIndex, // items 列表在 combinedMedia 中的起始索引
-  }) {
-    List<Widget> children = [];
-    for (int i = 0; i < rowItems.length; i++) {
-      final item = rowItems[i];
-      final path = item['path'];
-      final fileUrl = TaskManager().getImgUrl(path);
-      final isVideo = item['type'] == 'video';
-      final thumbUrl = _getThumbUrl(item); // 获取缩略图
-
-      double w = (item['w'] as num?)?.toDouble() ?? 100;
-      double h = (item['h'] as num?)?.toDouble() ?? 100;
-      if (w <= 0) w = 100;
-      if (h <= 0) h = 100;
-
-      double itemWidth = height * (w / h);
-
-      // 计算用于交互的全局索引 (combinedMedia 中的索引)
-      int currentLocalIndex = localStartIndex + i;
-      int currentGlobalIndex = globalStartIndex + currentLocalIndex;
-
-      bool isSelected = selectedPaths.contains(path);
-
-      children.add(
-        MetaData(
-          metaData: currentGlobalIndex,
-          behavior: HitTestBehavior.opaque,
-          child: SizedBox(
-            width: itemWidth,
-            height: height,
-            child: TVFocusableWidget(
-              isSelected: isSelected,
-              key: ValueKey(path),
-              onTap: () {
-                final isShiftPressed =
-                    HardwareKeyboard.instance.logicalKeysPressed.contains(
-                      LogicalKeyboardKey.shiftLeft,
-                    ) ||
-                    HardwareKeyboard.instance.logicalKeysPressed.contains(
-                      LogicalKeyboardKey.shiftRight,
-                    );
-                if (isSelectionMode || isShiftPressed) {
-                  _handleTapSelection(currentGlobalIndex, path);
-                } else {
-                  if (isVideo) {
-                    Navigator.push(
-                      context,
-                      CupertinoPageRoute(
-                        builder: (context) =>
-                            VideoPlayerPage(videoUrl: fileUrl),
-                      ),
-                    );
-                  } else {
-                    int imageIndex = currentLocalIndex; // 在 images 列表中的索引
-                    setState(() {
-                      _lastInteractionIndex = currentGlobalIndex;
-                    });
-                    _openPreview(imageIndex);
-                  }
-                }
-              },
-              onSecondaryTap: () {
-                if (!isSelectionMode) {
-                  setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
-                  });
-                }
-              },
-              onLongPress: () {
-                if (!isSelectionMode) {
-                  setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
-                  });
-                  HapticFeedback.mediumImpact();
-                }
-              },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      color: const Color(0xFF202023),
-                      width: double.infinity,
-                      height: double.infinity,
-                      child: isVideo
-                          ? Stack(
-                              alignment: Alignment.center,
-                              fit: StackFit.expand,
-                              children: [
-                                // 1. 视频缩略图 (如果有)
-                                if (thumbUrl.isNotEmpty)
-                                  CachedNetworkImage(
-                                    imageUrl: thumbUrl,
-                                    fit: BoxFit.cover,
-                                    memCacheHeight: 400,
-                                    placeholder: (context, url) => Container(
-                                      color: const Color(0xFF202023),
-                                    ),
-                                  )
-                                else
-                                  // 兜底背景
-                                  Container(
-                                    decoration: const BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Color(0xFF2C2C2E),
-                                          Color(0xFF1C1C1E),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
-                                    ),
-                                  ),
-
-                                // 2. 黑色遮罩
-                                Container(
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.transparent,
-                                        Colors.black54,
-                                      ],
-                                      stops: [0.6, 1.0],
-                                    ),
-                                  ),
-                                ),
-
-                                // 3. 装饰水印
-                                Positioned(
-                                  right: -5,
-                                  bottom: -5,
-                                  child: Icon(
-                                    Icons.videocam,
-                                    size: 35,
-                                    color: Colors.white.withOpacity(0.1),
-                                  ),
-                                ),
-
-                                // 4. 播放按钮
-                                Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.black54,
-                                    ),
-                                    child: const Icon(
-                                      Icons.play_arrow,
-                                      size: 20,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-
-                                // 5. 文件名
-                                Positioned(
-                                  bottom: 4,
-                                  left: 4,
-                                  right: 4,
-                                  child: Text(
-                                    item['name'],
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-
-                                // 6. VIDEO 标识
-                                Positioned(
-                                  top: 4,
-                                  right: 4,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 3,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black87,
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                    child: const Text(
-                                      "VIDEO",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 7,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : CachedNetworkImage(
-                              imageUrl: fileUrl,
-                              memCacheHeight: 1000,
-                              fit: BoxFit.cover,
-                              fadeInDuration: Duration.zero,
-                              fadeOutDuration: Duration.zero,
-                              placeholderFadeInDuration: Duration.zero,
-                              placeholder: (context, url) =>
-                                  Container(color: const Color(0xFF202023)),
-                              errorWidget: (context, url, error) =>
-                                  const Center(
-                                    child: Icon(
-                                      Icons.broken_image,
-                                      color: Colors.white24,
-                                    ),
-                                  ),
-                            ),
-                    ),
-                  ),
-                  if (isSelectionMode)
-                    Container(
-                      color: isSelected ? Colors.black45 : Colors.transparent,
-                      child: Align(
-                        alignment: Alignment.topRight,
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Icon(
-                            isSelected
-                                ? Icons.check_circle
-                                : Icons.circle_outlined,
-                            color: isSelected
-                                ? Colors.tealAccent
-                                : Colors.white70,
-                            size: 28,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      if (i < rowItems.length - 1) children.add(SizedBox(width: spacing));
-    }
-
-    return Container(
-      margin: EdgeInsets.only(bottom: spacing),
-      height: height,
-      child: Row(
-        // mainAxisAlignment: isLastRow
-        //     ? MainAxisAlignment.start
-        //     : MainAxisAlignment.spaceBetween,
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: children,
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) => SliverToBoxAdapter(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.grey,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.5,
-        ),
-      ),
-    ),
-  );
-
-  Widget _buildFolderGrid(int crossAxisCount) {
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
-      sliver: SliverGrid(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          mainAxisSpacing: kSpacing,
-          crossAxisSpacing: kSpacing,
-          childAspectRatio: 2 / 3,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final item = folders[index];
-          // 文件夹的 cover_path 一定是文件路径，直接用 getImgUrl
-          final String? coverPath = item['cover_path'];
-          final hasCover = coverPath != null && coverPath.isNotEmpty;
-          final coverUrl = hasCover ? TaskManager().getImgUrl(coverPath) : "";
-
-          return TVFocusableWidget(
-            key: ValueKey(item['path']),
-            onTap: () {
-              if (isSelectionMode) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Cannot open folder in selection mode"),
-                  ),
-                );
-              } else {
-                Navigator.push(
-                  context,
-                  CupertinoPageRoute(
-                    builder: (context) => GalleryPage(path: item['path']),
-                  ),
-                );
-              }
-            },
-            onLongPress: () => _showFolderMenu(item),
-            onSecondaryTap: () => _showFolderMenu(item),
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF252528),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (hasCover)
-                      CachedNetworkImage(
-                        imageUrl: coverUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        memCacheHeight: 400,
-                        placeholder: (context, url) =>
-                            Container(color: const Color(0xFF202023)),
-                        errorWidget: (context, url, error) => const Center(
-                          child: Icon(
-                            Icons.folder,
-                            size: 40,
-                            color: Colors.amber,
-                          ),
-                        ),
-                      ),
-                    if (!hasCover)
-                      const Center(
-                        child: Icon(
-                          Icons.folder,
-                          size: 40,
-                          color: Colors.amber,
-                        ),
-                      ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: 60,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withOpacity(0.9),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      left: 6,
-                      right: 6,
-                      child: Text(
-                        item['name'],
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }, childCount: folders.length),
-      ),
-    );
-  }
 }
 
-// 在 GalleryPage 文件的末尾或其他合适位置添加这个组件
 class VideoResolutionTag extends StatefulWidget {
   final String path;
   const VideoResolutionTag({super.key, required this.path});
@@ -2302,9 +2052,7 @@ class VideoResolutionTag extends StatefulWidget {
 }
 
 class _VideoResolutionTagState extends State<VideoResolutionTag> {
-  String text = "VIDEO"; // 默认显示
-
-  // 简单的内存缓存，避免来回滑动重复请求 (静态变量)
+  String text = "VIDEO";
   static final Map<String, String> _cache = {};
 
   @override
@@ -2314,13 +2062,10 @@ class _VideoResolutionTagState extends State<VideoResolutionTag> {
   }
 
   Future<void> _fetchResolution() async {
-    // 1. 检查缓存
     if (_cache.containsKey(widget.path)) {
       if (mounted) setState(() => text = _cache[widget.path]!);
       return;
     }
-
-    // 2. 请求后端
     try {
       final response = await Dio().get(
         '$serverUrl/api/video-info',
@@ -2331,15 +2076,13 @@ class _VideoResolutionTagState extends State<VideoResolutionTag> {
         final h = response.data['h'];
         if (w != null && h != null && w > 0 && h > 0) {
           final newText = "$w x $h";
-          _cache[widget.path] = newText; // 存入缓存
+          _cache[widget.path] = newText;
           setState(() {
             text = newText;
           });
         }
       }
-    } catch (_) {
-      // 失败保持默认 "VIDEO"
-    }
+    } catch (_) {}
   }
 
   @override

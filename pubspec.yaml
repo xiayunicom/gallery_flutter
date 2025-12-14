@@ -42,8 +42,8 @@ dependencies:
   badges: ^3.1.2
   media_kit: ^1.1.10
   media_kit_video: ^1.2.4
-  media_kit_libs_video: ^1.0.4 # 内置解码器，让Windows支持所有格式
-
+  media_kit_libs_video: ^1.0.4
+  device_info_plus: ^10.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -16,20 +16,29 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: "zulu"
+          java-version: "17"
 
       # 2. 设置 Flutter 环境
       - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: "stable"
 
       - name: Get dependencies
         run: flutter pub get
 
       # 3. 构建 APK
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Decode Keystore and Build APK
+        run: |
+          echo "${{ secrets.BUILD_ANDROID }}" | base64 --decode > android/app/upload-keystore.jks
+          flutter build apk --release
+        env:
+          # 这里的路径对应上面解码生成的文件路径
+          KEYSTORE_PATH: upload-keystore.jks
+          # 这里的 secrets 需要你在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中配置
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       # 4. 上传构建好的 APK 到 GitHub Actions 结果中
       - name: Upload APK
