@@ -323,8 +323,8 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     }
   }
 
-  KeyEventResult _handleKeyEvent(RawKeyEvent event) {
-    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     final key = event.logicalKey;
 
@@ -343,18 +343,8 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
     // 3. "三杠"菜单键：作为自动播放开关
     // 遥控器的菜单键通常映射为 contextMenu
-    if (key == LogicalKeyboardKey.contextMenu ||
-        key == LogicalKeyboardKey.contextMenu) {
+    if (key == LogicalKeyboardKey.contextMenu) {
       _toggleAutoPlay();
-      if (!showControls) {
-        setState(() {
-          showControls = true;
-          SystemChrome.setEnabledSystemUIMode(
-            SystemUiMode.manual,
-            overlays: SystemUiOverlay.values,
-          );
-        });
-      }
       return KeyEventResult.handled;
     }
 
@@ -405,10 +395,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
       ),
       child: Focus(
         autofocus: true,
-        onKey: (node, event) {
-          _handleKeyEvent(event);
-          return KeyEventResult.handled;
-        },
+        onKeyEvent: (node, event) => _handleKeyEvent(node, event),
         child: Scaffold(
           backgroundColor: Colors.transparent,
           extendBodyBehindAppBar: true,

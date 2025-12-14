@@ -39,8 +39,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   // 📺 核心修复：处理遥控器按键
-  KeyEventResult _handleKeyEvent(RawKeyEvent event) {
-    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     final key = event.logicalKey;
 
@@ -134,7 +134,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       color: Colors.black,
       child: Focus(
         autofocus: true, // 📺 确保页面进入后立即获得焦点，响应按键
-        onKey: (node, event) => _handleKeyEvent(event),
+        onKeyEvent: (node, event) => _handleKeyEvent(node, event),
         child: Stack(
           children: [
             // 视频主体
