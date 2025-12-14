@@ -34,7 +34,7 @@ jobs:
           flutter build apk --release
         env:
           # 这里的路径对应上面解码生成的文件路径
-          KEYSTORE_PATH: upload-keystore.jks
+          KEYSTORE_PATH: "${{ github.workspace }}/android/app/upload-keystore.jks"
           # 这里的 secrets 需要你在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中配置
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
