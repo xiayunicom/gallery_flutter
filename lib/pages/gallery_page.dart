@@ -1907,6 +1907,7 @@ class _GalleryPageState extends State<GalleryPage> {
             height: height,
             child: TVFocusableWidget(
               isSelected: isSelected,
+              key: ValueKey(path),
               onTap: () {
                 final isShiftPressed =
                     HardwareKeyboard.instance.logicalKeysPressed.contains(
@@ -1954,173 +1955,168 @@ class _GalleryPageState extends State<GalleryPage> {
                   HapticFeedback.mediumImpact();
                 }
               },
-              child: Hero(
-                tag: isSelectionMode
-                    ? "no-hero-$path"
-                    : (isVideo ? "video-$path" : fileUrl),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        color: const Color(0xFF202023),
-                        width: double.infinity,
-                        height: double.infinity,
-                        child: isVideo
-                            ? Stack(
-                                alignment: Alignment.center,
-                                fit: StackFit.expand,
-                                children: [
-                                  // 1. 视频缩略图 (如果有)
-                                  if (thumbUrl.isNotEmpty)
-                                    CachedNetworkImage(
-                                      imageUrl: thumbUrl,
-                                      fit: BoxFit.cover,
-                                      memCacheHeight: 400,
-                                      placeholder: (context, url) => Container(
-                                        color: const Color(0xFF202023),
-                                      ),
-                                    )
-                                  else
-                                    // 兜底背景
-                                    Container(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            Color(0xFF2C2C2E),
-                                            Color(0xFF1C1C1E),
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                      ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      color: const Color(0xFF202023),
+                      width: double.infinity,
+                      height: double.infinity,
+                      child: isVideo
+                          ? Stack(
+                              alignment: Alignment.center,
+                              fit: StackFit.expand,
+                              children: [
+                                // 1. 视频缩略图 (如果有)
+                                if (thumbUrl.isNotEmpty)
+                                  CachedNetworkImage(
+                                    imageUrl: thumbUrl,
+                                    fit: BoxFit.cover,
+                                    memCacheHeight: 400,
+                                    placeholder: (context, url) => Container(
+                                      color: const Color(0xFF202023),
                                     ),
-
-                                  // 2. 黑色遮罩
+                                  )
+                                else
+                                  // 兜底背景
                                   Container(
                                     decoration: const BoxDecoration(
                                       gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
                                         colors: [
-                                          Colors.transparent,
-                                          Colors.black54,
+                                          Color(0xFF2C2C2E),
+                                          Color(0xFF1C1C1E),
                                         ],
-                                        stops: [0.6, 1.0],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
                                       ),
                                     ),
                                   ),
 
-                                  // 3. 装饰水印
-                                  Positioned(
-                                    right: -5,
-                                    bottom: -5,
+                                // 2. 黑色遮罩
+                                Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.transparent,
+                                        Colors.black54,
+                                      ],
+                                      stops: [0.6, 1.0],
+                                    ),
+                                  ),
+                                ),
+
+                                // 3. 装饰水印
+                                Positioned(
+                                  right: -5,
+                                  bottom: -5,
+                                  child: Icon(
+                                    Icons.videocam,
+                                    size: 35,
+                                    color: Colors.white.withOpacity(0.1),
+                                  ),
+                                ),
+
+                                // 4. 播放按钮
+                                Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black54,
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow,
+                                      size: 20,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+
+                                // 5. 文件名
+                                Positioned(
+                                  bottom: 4,
+                                  left: 4,
+                                  right: 4,
+                                  child: Text(
+                                    item['name'],
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+
+                                // 6. VIDEO 标识
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 3,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black87,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                    child: const Text(
+                                      "VIDEO",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : CachedNetworkImage(
+                              imageUrl: fileUrl,
+                              memCacheHeight: 1000,
+                              fit: BoxFit.cover,
+                              fadeInDuration: Duration.zero,
+                              fadeOutDuration: Duration.zero,
+                              placeholderFadeInDuration: Duration.zero,
+                              placeholder: (context, url) =>
+                                  Container(color: const Color(0xFF202023)),
+                              errorWidget: (context, url, error) =>
+                                  const Center(
                                     child: Icon(
-                                      Icons.videocam,
-                                      size: 35,
-                                      color: Colors.white.withOpacity(0.1),
+                                      Icons.broken_image,
+                                      color: Colors.white24,
                                     ),
                                   ),
-
-                                  // 4. 播放按钮
-                                  Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: const BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.black54,
-                                      ),
-                                      child: const Icon(
-                                        Icons.play_arrow,
-                                        size: 20,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-
-                                  // 5. 文件名
-                                  Positioned(
-                                    bottom: 4,
-                                    left: 4,
-                                    right: 4,
-                                    child: Text(
-                                      item['name'],
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w400,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-
-                                  // 6. VIDEO 标识
-                                  Positioned(
-                                    top: 4,
-                                    right: 4,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 3,
-                                        vertical: 1,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black87,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                      child: const Text(
-                                        "VIDEO",
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 7,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : CachedNetworkImage(
-                                imageUrl: fileUrl,
-                                memCacheHeight: 1000,
-                                fit: BoxFit.cover,
-                                fadeInDuration: Duration.zero,
-                                fadeOutDuration: Duration.zero,
-                                placeholderFadeInDuration: Duration.zero,
-                                placeholder: (context, url) =>
-                                    Container(color: const Color(0xFF202023)),
-                                errorWidget: (context, url, error) =>
-                                    const Center(
-                                      child: Icon(
-                                        Icons.broken_image,
-                                        color: Colors.white24,
-                                      ),
-                                    ),
-                              ),
-                      ),
-                    ),
-                    if (isSelectionMode)
-                      Container(
-                        color: isSelected ? Colors.black45 : Colors.transparent,
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Icon(
-                              isSelected
-                                  ? Icons.check_circle
-                                  : Icons.circle_outlined,
-                              color: isSelected
-                                  ? Colors.tealAccent
-                                  : Colors.white70,
-                              size: 28,
                             ),
+                    ),
+                  ),
+                  if (isSelectionMode)
+                    Container(
+                      color: isSelected ? Colors.black45 : Colors.transparent,
+                      child: Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            color: isSelected
+                                ? Colors.tealAccent
+                                : Colors.white70,
+                            size: 28,
                           ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
           ),
