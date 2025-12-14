@@ -436,7 +436,19 @@ class _GalleryPageState extends State<GalleryPage> {
       if (isShiftPressed) {
         isSelectionMode = true;
         if (_lastInteractionIndex != null) {
-          _selectRange(_lastInteractionIndex!, index);
+          // === 修改开始：获取起始项（锚点）的选中状态 ===
+          final allMedia = combinedMedia;
+          bool targetState = true; // 默认为选中
+
+          // 检查上一次点击的那个 item 目前是否被选中
+          if (_lastInteractionIndex! < allMedia.length) {
+            final lastPath = allMedia[_lastInteractionIndex!]['path'];
+            targetState = selectedPaths.contains(lastPath);
+          }
+
+          // 将目标状态传递给 _selectRange
+          _selectRange(_lastInteractionIndex!, index, targetState);
+          // === 修改结束 ===
         } else {
           if (!selectedPaths.contains(path)) selectedPaths.add(path);
           _lastInteractionIndex = index;
@@ -451,13 +463,18 @@ class _GalleryPageState extends State<GalleryPage> {
     });
   }
 
-  void _selectRange(int start, int end) {
+  void _selectRange(int start, int end, bool targetState) {
     int lower = min(start, end);
     int upper = max(start, end);
     final allMedia = combinedMedia;
     for (int i = lower; i <= upper; i++) {
       if (i < allMedia.length) {
-        selectedPaths.add(allMedia[i]['path']);
+        final p = allMedia[i]['path'];
+        if (targetState) {
+          selectedPaths.add(p); // 选中
+        } else {
+          selectedPaths.remove(p); // 反选（移除）
+        }
       }
     }
   }
