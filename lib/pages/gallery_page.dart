@@ -786,6 +786,9 @@ class _GalleryPageState extends State<GalleryPage> {
   void _showFolderMenu(dynamic folder) {
     showModalBottomSheet(
       context: context,
+      constraints: const BoxConstraints(
+        maxWidth: 300, // 设置你想要的宽度，例如 400
+      ),
       builder: (context) => Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(

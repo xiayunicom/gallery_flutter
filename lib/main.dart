@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
+import 'dart:io';
 import 'services/task_manager.dart';
 import 'pages/gallery_page.dart';
 
@@ -22,6 +23,15 @@ class GalleryApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String? getSystemFont() {
+      if (Platform.isIOS || Platform.isMacOS) {
+        return '.AppleSystemUIFont'; // iOS/macOS 专用的系统字体占位符
+      } else if (Platform.isWindows) {
+        return 'Microsoft YaHei'; // Windows 推荐强制指定微软雅黑，否则中文可能渲染不佳
+      }
+      return null; // Android/Linux 保持默认 (通常是 Roboto + Noto Sans)
+    }
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Gallery Pro',
@@ -31,6 +41,9 @@ class GalleryApp extends StatelessWidget {
       },
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F12),
+        textTheme: ThemeData.dark().textTheme.apply(
+          fontFamily: getSystemFont(),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF18181B),
           elevation: 0,
