@@ -3,16 +3,31 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
 import 'services/task_manager.dart';
 import 'pages/gallery_page.dart';
+import 'config.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   // 设置图片缓存大小
   PaintingBinding.instance.imageCache.maximumSizeBytes = 500 * 1024 * 1024;
   PaintingBinding.instance.imageCache.maximumSize = 3000;
+
+  if (Platform.isAndroid) {
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      // 只有包含 leanback 特性的才是真正的 Android TV
+      isAndroidTv = androidInfo.systemFeatures.contains(
+        'android.software.leanback',
+      );
+    } catch (e) {
+      debugPrint("Device info check failed: $e");
+    }
+  }
 
   TaskManager().init(); // 初始化服务
   runApp(const GalleryApp());
