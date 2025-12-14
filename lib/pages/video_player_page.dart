@@ -209,7 +209,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           bottomButtonBar: bottomBarItems,
 
           bottomButtonBarMargin: const EdgeInsets.only(
-            bottom: 4,
+            bottom: 30,
             left: 16,
             right: 16,
           ),
