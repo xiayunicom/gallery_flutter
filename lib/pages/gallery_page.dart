@@ -51,6 +51,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   double? _lastScreenWidth;
 
+  static const double kSpacing = 1.0;
+
   @override
   void initState() {
     super.initState();
@@ -154,8 +156,8 @@ class _GalleryPageState extends State<GalleryPage> {
       sliver: SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 4,
-          crossAxisSpacing: 4,
+          mainAxisSpacing: kSpacing,
+          crossAxisSpacing: kSpacing,
           childAspectRatio: 16 / 9,
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
@@ -169,6 +171,7 @@ class _GalleryPageState extends State<GalleryPage> {
           final thumbUrl = _getThumbUrl(item);
 
           return TVFocusableWidget(
+            key: ValueKey(path),
             isSelected: isSelected,
             onTap: () {
               final isShiftPressed =
@@ -1305,9 +1308,9 @@ class _GalleryPageState extends State<GalleryPage> {
 
   double _calculateFoldersSectionHeight(int crossAxisCount) {
     if (folders.isEmpty) return 0.0;
-    const horizontalPadding = 8.0;
-    const crossSpacing = 4.0;
-    const mainSpacing = 4.0;
+    const horizontalPadding = kSpacing * 2;
+    const crossSpacing = kSpacing;
+    const mainSpacing = kSpacing;
     final screenWidth = MediaQuery.of(context).size.width;
     final contentWidth = screenWidth - horizontalPadding;
     final itemWidth =
@@ -1355,7 +1358,7 @@ class _GalleryPageState extends State<GalleryPage> {
     double targetRowHeight = 300.0;
     if (screenWidth >= 600 && screenWidth < 1400) targetRowHeight = 360.0;
 
-    const double spacing = 4.0;
+    const double spacing = kSpacing;
     final double contentWidth = screenWidth - (spacing * 2);
 
     double totalHeight = 0.0;
@@ -1429,7 +1432,7 @@ class _GalleryPageState extends State<GalleryPage> {
     double targetRowHeight = 300.0;
     if (screenWidth >= 600 && screenWidth < 1400) targetRowHeight = 360.0;
 
-    const double spacing = 4.0;
+    const double spacing = kSpacing;
     final double contentWidth = screenWidth - (spacing * 2);
 
     int rowStartImageIdx = 0;
@@ -1687,7 +1690,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     _buildSectionTitle("IMAGES (${images.length})"),
                   if (images.isNotEmpty)
                     SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) => imageRows[index],
@@ -1781,7 +1784,7 @@ class _GalleryPageState extends State<GalleryPage> {
       targetRowHeight = 360.0;
     }
 
-    const double spacing = 4.0;
+    const double spacing = kSpacing;
     final double contentWidth = screenWidth - (spacing * 2);
     List<Widget> rows = [];
     List<dynamic> currentRowItems = [];
@@ -2129,9 +2132,11 @@ class _GalleryPageState extends State<GalleryPage> {
       margin: EdgeInsets.only(bottom: spacing),
       height: height,
       child: Row(
-        mainAxisAlignment: isLastRow
-            ? MainAxisAlignment.start
-            : MainAxisAlignment.spaceBetween,
+        // mainAxisAlignment: isLastRow
+        //     ? MainAxisAlignment.start
+        //     : MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: children,
       ),
     );
@@ -2154,12 +2159,12 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget _buildFolderGrid(int crossAxisCount) {
     return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
       sliver: SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 4,
-          crossAxisSpacing: 4,
+          mainAxisSpacing: kSpacing,
+          crossAxisSpacing: kSpacing,
           childAspectRatio: 2 / 3,
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
@@ -2170,6 +2175,7 @@ class _GalleryPageState extends State<GalleryPage> {
           final coverUrl = hasCover ? TaskManager().getImgUrl(coverPath) : "";
 
           return TVFocusableWidget(
+            key: ValueKey(item['path']),
             onTap: () {
               if (isSelectionMode) {
                 ScaffoldMessenger.of(context).showSnackBar(

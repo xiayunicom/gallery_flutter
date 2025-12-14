@@ -57,10 +57,10 @@ class TVFocusableWidget extends StatelessWidget {
                 borderRadius: BorderRadius.circular(borderRadius),
                 // 焦点状态样式
                 border: focused
-                    ? Border.all(color: Colors.white, width: 3)
+                    ? Border.all(color: Colors.white, width: 2)
                     : (isSelected
-                          ? Border.all(color: Colors.tealAccent, width: 3)
-                          : Border.all(color: Colors.transparent, width: 3)),
+                          ? Border.all(color: Colors.tealAccent, width: 2)
+                          : Border.all(color: Colors.transparent, width: 2)),
                 // 阴影：如果低端盒子卡顿，建议去掉下面的 boxShadow 属性
                 boxShadow: focused
                     ? [
