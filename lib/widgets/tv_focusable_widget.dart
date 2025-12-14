@@ -68,7 +68,7 @@ class TVFocusableWidget extends StatelessWidget {
                 // 2. 否则看 isSelected -> 显示青色选中框
                 // 3. 否则 -> 透明框
                 border: showFocusVisuals
-                    ? Border.all(color: Colors.white, width: 2)
+                    ? Border.all(color: Colors.tealAccent, width: 2)
                     : (isSelected
                           ? Border.all(color: Colors.tealAccent, width: 2)
                           : Border.all(color: Colors.transparent, width: 2)),
