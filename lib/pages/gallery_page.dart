@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data'; // Add: For Uint8List
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:badges/badges.dart' as badges;
+import 'package:jxl_coder/jxl_coder.dart'; // Add: JXL support
 
 import '../config.dart';
 import '../services/task_manager.dart';
@@ -139,6 +141,33 @@ class _GalleryPageState extends State<GalleryPage> {
     return TaskManager().getImgUrl(coverPath);
   }
 
+  Widget _buildImageWidget({
+    required String url,
+    required BoxFit fit,
+    int? memCacheHeight,
+    Widget Function(BuildContext, String)? placeholder,
+    Widget Function(BuildContext, String, dynamic)? errorWidget,
+  }) {
+    // ✅ 1. 先打印 URL 看看长什么样（调试完可删除）
+    print("检查图片 URL: $url");
+
+    // ✅ 2. 移除问号后面的参数再判断后缀
+    String cleanUrl = url.split('?').first.toLowerCase();
+
+    if (cleanUrl.endsWith('.jxl')) {
+      print(">>> 识别到 JXL，使用 _JxlGridImage"); // 调试日志
+      return _JxlGridImage(url: url, fit: fit);
+    }
+
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: fit,
+      memCacheHeight: memCacheHeight,
+      placeholder: placeholder,
+      errorWidget: errorWidget,
+    );
+  }
+
   Widget _buildFolderGrid(int crossAxisCount) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: kSpacing),
@@ -189,11 +218,10 @@ class _GalleryPageState extends State<GalleryPage> {
                   fit: StackFit.expand,
                   children: [
                     if (hasCover)
-                      CachedNetworkImage(
-                        imageUrl: coverUrl,
+                      // Modified to use _buildImageWidget
+                      _buildImageWidget(
+                        url: coverUrl,
                         fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
                         memCacheHeight: 400,
                         placeholder: (context, url) =>
                             Container(color: const Color(0xFF202023)),
@@ -334,8 +362,9 @@ class _GalleryPageState extends State<GalleryPage> {
                         fit: StackFit.expand,
                         children: [
                           if (thumbUrl.isNotEmpty)
-                            CachedNetworkImage(
-                              imageUrl: thumbUrl,
+                            // Modified to use _buildImageWidget
+                            _buildImageWidget(
+                              url: thumbUrl,
                               fit: BoxFit.cover,
                               memCacheHeight: 400,
                               placeholder: (context, url) => Container(
@@ -1678,7 +1707,7 @@ class _GalleryPageState extends State<GalleryPage> {
     List<Widget> children = [];
     for (int i = 0; i < rowItems.length; i++) {
       final item = rowItems[i];
-      final path = item['path'];
+      final path = item['path'] as String;
       final fileUrl = TaskManager().getImgUrl(path);
       final isVideo = item['type'] == 'video';
       final thumbUrl = _getThumbUrl(item);
@@ -1767,8 +1796,9 @@ class _GalleryPageState extends State<GalleryPage> {
                               fit: StackFit.expand,
                               children: [
                                 if (thumbUrl.isNotEmpty)
-                                  CachedNetworkImage(
-                                    imageUrl: thumbUrl,
+                                  // Modified to use _buildImageWidget
+                                  _buildImageWidget(
+                                    url: thumbUrl,
                                     fit: BoxFit.cover,
                                     memCacheHeight: 400,
                                     placeholder: (context, url) => Container(
@@ -1796,8 +1826,8 @@ class _GalleryPageState extends State<GalleryPage> {
                                 ),
                               ],
                             )
-                          : CachedNetworkImage(
-                              imageUrl: fileUrl,
+                          : _buildImageWidget(
+                              url: fileUrl,
                               memCacheHeight: 1000,
                               fit: BoxFit.cover,
                               placeholder: (context, url) =>
@@ -2107,5 +2137,103 @@ class _VideoResolutionTagState extends State<VideoResolutionTag> {
         ),
       ),
     );
+  }
+}
+
+// Add: Memory Cache for JXL images to prevent re-decoding on scroll
+final Map<String, Uint8List> _jxlMemoryCache = {};
+
+// Add: Private widget for handling JXL grid display
+class _JxlGridImage extends StatefulWidget {
+  final String url;
+  final BoxFit fit;
+  const _JxlGridImage({required this.url, required this.fit});
+
+  @override
+  State<_JxlGridImage> createState() => _JxlGridImageState();
+}
+
+class _JxlGridImageState extends State<_JxlGridImage> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _JxlGridImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    // 1. 检查内存缓存
+    if (_jxlMemoryCache.containsKey(widget.url)) {
+      if (mounted) {
+        setState(() {
+          _bytes = _jxlMemoryCache[widget.url];
+          _loading = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      String fixedUrl = Uri.decodeFull(widget.url);
+
+      String finalUrl = widget.url.replaceAll('%2F', '/');
+
+      print("JXL 修正后的 URL: $finalUrl"); // 调试日志
+
+      final response = await Dio().get(
+        finalUrl, // 使用修正后的 URL
+        options: Options(responseType: ResponseType.bytes),
+      );
+
+      final jxlBytes = Uint8List.fromList(response.data);
+
+      // 开始转码
+      final jpegBytes = await JxlCoder.jxlToJpeg(jxlBytes);
+
+      if (jpegBytes != null) {
+        _jxlMemoryCache[widget.url] = jpegBytes; // 存入缓存
+      }
+
+      if (mounted) {
+        setState(() {
+          _bytes = jpegBytes;
+          _loading = false;
+          _error = jpegBytes == null;
+        });
+      }
+    } catch (e) {
+      print("❌ JXL 加载失败: $e"); // 必须打印这个错误！
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Container(color: const Color(0xFF202023));
+    }
+    if (_error || _bytes == null) {
+      return Container(
+        color: const Color(0xFF202023),
+        child: const Icon(Icons.broken_image, color: Colors.white24, size: 20),
+      );
+    }
+    return Image.memory(_bytes!, fit: widget.fit, gaplessPlayback: true);
   }
 }

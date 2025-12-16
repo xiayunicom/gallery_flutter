@@ -1,5 +1,6 @@
 // lib/pages/photo_preview_page.dart
 import 'dart:async';
+import 'dart:typed_data'; // Add: For Uint8List
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+import 'package:jxl_coder/jxl_coder.dart'; // Add: JXL support
 import '../config.dart';
 import '../services/task_manager.dart';
 
@@ -100,8 +102,6 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     controller.scale = newScale;
 
     // 手动更新缩放状态（辅助 PhotoView 的状态回调）
-    // 注意：这里阈值设为 1.0 可能不准确（取决于 initialScale），但在大多数 contained 模式下是有效的参考
-    // 更准确的逻辑由 scaleStateChangedCallback 处理，这里主要处理滚轮的即时反馈
     if (newScale > 1.05 && !_isZoomed) {
       setState(() => _isZoomed = true);
     }
@@ -145,13 +145,11 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
-    // 【关键】如果处于缩放状态，直接忽略下滑关闭逻辑
     if (_isZoomed) return;
 
     setState(() {
       double dy = _dragOffset.dy + details.delta.dy;
       double dx = _dragOffset.dx + details.delta.dx;
-      // 向上拖动阻尼更大
       if (dy < 0) dy *= 0.4;
       _dragOffset = Offset(dx, dy);
       final screenHeight = MediaQuery.of(context).size.height;
@@ -328,27 +326,21 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
     final key = event.logicalKey;
 
-    // 1. 返回键：退出 (支持 Android 物理返回键 和 键盘 ESC)
     if (key == LogicalKeyboardKey.escape) {
       Navigator.pop(context, currentIndex);
       return KeyEventResult.handled;
     }
 
-    // 2. 确认键：显示/隐藏控制栏
-    // 遥控器 OK 键通常映射为 select 或 enter
     if (key == LogicalKeyboardKey.select || key == LogicalKeyboardKey.enter) {
       _toggleControls();
       return KeyEventResult.handled;
     }
 
-    // 3. "三杠"菜单键：作为自动播放开关
-    // 遥控器的菜单键通常映射为 contextMenu
     if (key == LogicalKeyboardKey.contextMenu) {
       _toggleAutoPlay();
       return KeyEventResult.handled;
     }
 
-    // 4. 左右切换
     if (key == LogicalKeyboardKey.arrowRight) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 200),
@@ -364,14 +356,12 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
       return KeyEventResult.handled;
     }
 
-    // 5. 删除键 (可选，如果有键盘的话)
     if (key == LogicalKeyboardKey.delete ||
         key == LogicalKeyboardKey.backspace) {
       _deleteCurrentPhoto();
       return KeyEventResult.handled;
     }
 
-    // 其他按键交由系统处理
     return KeyEventResult.ignored;
   }
 
@@ -411,8 +401,6 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                 Positioned.fill(
                   child: GestureDetector(
                     onTap: _toggleControls,
-                    // 【关键修改】如果处于缩放状态，将外层的拖动回调设为 null
-                    // 这样手势事件就会穿透给 PhotoView，实现放大后的拖动（Pan）
                     onVerticalDragUpdate: _isZoomed
                         ? null
                         : _onVerticalDragUpdate,
@@ -423,16 +411,30 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                         scale: _dragScale,
                         child: PhotoViewGallery.builder(
                           scrollPhysics: const BouncingScrollPhysics(),
-                          // 监听缩放状态变化，更新 _isZoomed
                           scaleStateChangedCallback: (state) => setState(
                             () => _isZoomed =
                                 state != PhotoViewScaleState.initial,
                           ),
                           builder: (context, index) {
                             final item = _currentImages[index];
-                            final imgUrl = TaskManager().getImgUrl(
-                              item['path'],
-                            );
+                            final path = item['path'] as String;
+                            final imgUrl = TaskManager().getImgUrl(path);
+                            final isJxl = path.toLowerCase().endsWith('.jxl');
+
+                            // Add: JXL Support Logic
+                            if (isJxl) {
+                              return PhotoViewGalleryPageOptions.customChild(
+                                child: _JxlFullImage(url: imgUrl),
+                                initialScale: PhotoViewComputedScale.contained,
+                                minScale: PhotoViewComputedScale.contained * 0.8,
+                                maxScale: PhotoViewComputedScale.covered * 4,
+                                heroAttributes: PhotoViewHeroAttributes(
+                                  tag: item['path'],
+                                ),
+                                controller: _getController(index),
+                              );
+                            }
+
                             return PhotoViewGalleryPageOptions(
                               imageProvider: CachedNetworkImageProvider(imgUrl),
                               initialScale: PhotoViewComputedScale.contained,
@@ -676,6 +678,68 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
           ),
         ),
       ),
+    );
+  }
+}
+
+// Add: Helper widget for displaying JXL in full screen preview
+class _JxlFullImage extends StatefulWidget {
+  final String url;
+  const _JxlFullImage({required this.url});
+
+  @override
+  State<_JxlFullImage> createState() => _JxlFullImageState();
+}
+
+class _JxlFullImageState extends State<_JxlFullImage> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final response = await Dio().get(
+        widget.url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final jxlBytes = Uint8List.fromList(response.data);
+      final jpegBytes = await JxlCoder.jxlToJpeg(jxlBytes);
+      if (mounted) {
+        setState(() {
+          _bytes = jpegBytes;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error || _bytes == null) {
+      return const Center(
+        child: Icon(Icons.broken_image, color: Colors.white54, size: 50),
+      );
+    }
+    return Image.memory(
+      _bytes!,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
     );
   }
 }
