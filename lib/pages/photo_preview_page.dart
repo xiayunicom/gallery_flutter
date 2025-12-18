@@ -1,6 +1,7 @@
 // lib/pages/photo_preview_page.dart
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -44,10 +45,13 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   // 核心状态：是否处于放大状态
   bool _isZoomed = false;
+  
+  // 缓存状态栏高度，防止隐藏状态栏时布局跳动
+  double _fixedPaddingTop = 0;
 
   @override
-  void initState() {
     super.initState();
+    // iOS 恢复沉浸式逻辑
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
     _currentImages = List.from(widget.images);
     currentIndex = widget.initialIndex;
@@ -112,6 +116,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     setState(() {
       showControls = !showControls;
     });
+
     if (showControls) {
       SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.manual,
@@ -378,6 +383,15 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   @override
   Widget build(BuildContext context) {
+    // 捕获有效的顶部边距 (当状态栏显示时)
+    final topPadding = MediaQuery.of(context).padding.top;
+    if (topPadding > 0) {
+      _fixedPaddingTop = topPadding;
+    }
+    // 如果还没获取到 (比如一开始就是全屏)，给一个默认值 (iOS通常是47-50左右，给20保底)
+    // 但通常 initState 后第一帧会有 padding
+    final safeTop = _fixedPaddingTop > 0 ? _fixedPaddingTop : topPadding;
+
     if (_currentImages.isEmpty) return const SizedBox();
     final currentItem = _currentImages[currentIndex];
     final platform = Theme.of(context).platform;
@@ -460,7 +474,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                 // ===== 顶部控制栏 =====
                 if (showControls)
                   Positioned(
-                    top: MediaQuery.of(context).padding.top + 12,
+                    top: safeTop + 12,
                     left: 16,
                     right: 16,
                     child: Stack(
