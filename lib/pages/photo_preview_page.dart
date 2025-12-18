@@ -50,6 +50,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
   double _fixedPaddingTop = 0;
 
   @override
+  void initState() {
     super.initState();
     // iOS 恢复沉浸式逻辑
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
