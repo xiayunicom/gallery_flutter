@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:badges/badges.dart' as badges;
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../config.dart';
 import '../services/task_manager.dart';
@@ -1167,6 +1168,24 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  Future<void> _handleClearCache() async {
+    try {
+      await DefaultCacheManager().emptyCache();
+      PaintingBinding.instance.imageCache.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cache cleared successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to clear cache: $e')),
+        );
+      }
+    }
+  }
+
   void _showTaskList() {
     final now = DateTime.now();
     showDialog(
@@ -1953,7 +1972,34 @@ class _GalleryPageState extends State<GalleryPage> {
               onPressed: _selectAll,
             )
           else
-            IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'refresh') {
+                  _fetchData();
+                } else if (value == 'clear_cache') {
+                  _handleClearCache();
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'refresh',
+                  child: ListTile(
+                    leading: Icon(Icons.refresh, color: Colors.black87),
+                    title: Text('Refresh'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'clear_cache',
+                  child: ListTile(
+                    leading: Icon(Icons.cleaning_services, color: Colors.black87),
+                    title: Text('Clear Cache'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       // 使用 GestureDetector 包裹 CustomScrollView，专门处理水平滑动选择
