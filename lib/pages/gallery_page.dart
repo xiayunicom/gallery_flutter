@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:badges/badges.dart' as badges;
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../config.dart';
 import '../services/task_manager.dart';
@@ -40,6 +41,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   bool isSelectionMode = false;
   Set<String> selectedPaths = {};
+
   int? _lastInteractionIndex;
 
   StreamSubscription? _refreshSubscription;
@@ -126,6 +128,8 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
         });
+
+
       }
     } catch (_) {}
   }
@@ -235,17 +239,33 @@ class _GalleryPageState extends State<GalleryPage> {
                       bottom: 8,
                       left: 6,
                       right: 6,
-                      child: Text(
-                        item['name'],
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          height: 1.2,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            item['name'],
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (item['count'] != null)
+                            Text(
+                              "${item['count']} items",
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                color: Colors.white54,
+                                height: 1.2,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -744,12 +764,15 @@ class _GalleryPageState extends State<GalleryPage> {
     if (selectedPaths.isEmpty) return;
     try {
       final pathsToUpdate = List<String>.from(selectedPaths);
-      await Dio().post(
+      final response = await Dio().post(
         '$serverUrl/api/rotate',
         data: {'paths': jsonEncode(selectedPaths.toList()), 'angle': angle},
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
-      TaskManager().bumpVersions(pathsToUpdate);
+      if (response.data != null && response.data['taskId'] != null) {
+        TaskManager().monitorTask(response.data['taskId'], pathsToUpdate);
+      }
+      
       setState(() {
         isSelectionMode = false;
         selectedPaths.clear();
@@ -1163,6 +1186,24 @@ class _GalleryPageState extends State<GalleryPage> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
+      }
+    }
+  }
+
+  Future<void> _handleClearCache() async {
+    try {
+      await DefaultCacheManager().emptyCache();
+      PaintingBinding.instance.imageCache.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cache cleared successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to clear cache: $e')),
+        );
       }
     }
   }
@@ -1953,7 +1994,34 @@ class _GalleryPageState extends State<GalleryPage> {
               onPressed: _selectAll,
             )
           else
-            IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'refresh') {
+                  _fetchData();
+                } else if (value == 'clear_cache') {
+                  _handleClearCache();
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'refresh',
+                  child: ListTile(
+                    leading: Icon(Icons.refresh, color: Colors.black87),
+                    title: Text('Refresh'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'clear_cache',
+                  child: ListTile(
+                    leading: Icon(Icons.cleaning_services, color: Colors.black87),
+                    title: Text('Clear Cache'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       // 使用 GestureDetector 包裹 CustomScrollView，专门处理水平滑动选择

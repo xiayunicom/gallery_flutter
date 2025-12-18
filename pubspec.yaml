@@ -44,6 +44,7 @@ dependencies:
   media_kit_video: ^1.2.4
   media_kit_libs_video: ^1.0.4
   device_info_plus: ^10.0.0
+  flutter_cache_manager: ^3.4.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -102,4 +103,3 @@ flutter_launcher_icons:
   windows: true
   image_path: "assets/app_icon.png"
   remove_alpha_ios: true
-  video_player: ^2.8.1

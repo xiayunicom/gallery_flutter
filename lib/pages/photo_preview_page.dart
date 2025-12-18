@@ -1,5 +1,7 @@
 // lib/pages/photo_preview_page.dart
 import 'dart:async';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,14 +45,25 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   // 核心状态：是否处于放大状态
   bool _isZoomed = false;
+  double _currentScale = 1.0;
+  
+  // 缓存状态栏高度，防止隐藏状态栏时布局跳动
+  double _fixedPaddingTop = 0;
 
   @override
   void initState() {
     super.initState();
+    // iOS 恢复沉浸式逻辑
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
     _currentImages = List.from(widget.images);
     currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    
+    // 初始化监听当前页的缩放
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+       _getController(currentIndex).outputStateStream.listen(_onScaleStateChanged);
+    });
+
     _breatheController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -100,17 +113,29 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     controller.scale = newScale;
 
     // 手动更新缩放状态（辅助 PhotoView 的状态回调）
-    // 注意：这里阈值设为 1.0 可能不准确（取决于 initialScale），但在大多数 contained 模式下是有效的参考
-    // 更准确的逻辑由 scaleStateChangedCallback 处理，这里主要处理滚轮的即时反馈
-    if (newScale > 1.05 && !_isZoomed) {
+    if (!_isZoomed) {
       setState(() => _isZoomed = true);
     }
   }
+
+  void _onScaleStateChanged(PhotoViewControllerValue value) {
+    final scale = value.scale ?? 1.0;
+    if ((scale - _currentScale).abs() > 0.01) {
+      setState(() {
+        _currentScale = scale;
+      });
+    }
+  }
+
+
+
+
 
   void _toggleControls() {
     setState(() {
       showControls = !showControls;
     });
+
     if (showControls) {
       SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.manual,
@@ -377,6 +402,15 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
   @override
   Widget build(BuildContext context) {
+    // 捕获有效的顶部边距 (当状态栏显示时)
+    final topPadding = MediaQuery.of(context).padding.top;
+    if (topPadding > 0) {
+      _fixedPaddingTop = topPadding;
+    }
+    // 如果还没获取到 (比如一开始就是全屏)，给一个默认值 (iOS通常是47-50左右，给20保底)
+    // 但通常 initState 后第一帧会有 padding
+    final safeTop = _fixedPaddingTop > 0 ? _fixedPaddingTop : topPadding;
+
     if (_currentImages.isEmpty) return const SizedBox();
     final currentItem = _currentImages[currentIndex];
     final platform = Theme.of(context).platform;
@@ -448,18 +482,54 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                           loadingBuilder: (context, event) =>
                               const Center(child: CircularProgressIndicator()),
                           pageController: _pageController,
-                          onPageChanged: (index) =>
-                              setState(() => currentIndex = index),
+                          onPageChanged: (index) {
+                            setState(() {
+                               currentIndex = index;
+                               _currentScale = 1.0;
+                               _isZoomed = false; // Reset zoom state
+                            });
+                            // 重新绑定监听
+                            _getController(index).outputStateStream.listen(_onScaleStateChanged);
+                          },
                         ),
                       ),
                     ),
                   ),
                 ),
 
+                // ===== 缩放百分比显示 =====
+                // ===== 缩放百分比显示 =====
+                 if (_isZoomed)
+                  Positioned(
+                    bottom: 50,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          "${(_currentScale * 100).toStringAsFixed(0)}%",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
                 // ===== 顶部控制栏 =====
                 if (showControls)
                   Positioned(
-                    top: MediaQuery.of(context).padding.top + 12,
+                    top: safeTop + 12,
                     left: 16,
                     right: 16,
                     child: Stack(
@@ -529,32 +599,48 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
                         // 中间：标题
                         Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                currentItem['name'],
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(30),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 6,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (currentItem['w'] != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 2),
-                                  child: Text(
-                                    "${currentItem['w']} x ${currentItem['h']} px",
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 10,
-                                      fontFamily: 'monospace',
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      currentItem['name'],
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
+                                    if (currentItem['w'] != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text(
+                                          "${currentItem['w']} x ${currentItem['h']} px",
+                                          style: const TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 10,
+                                            fontFamily: 'monospace',
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                            ],
+                              ),
+                            ),
                           ),
                         ),
 
