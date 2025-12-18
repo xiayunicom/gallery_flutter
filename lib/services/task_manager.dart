@@ -16,6 +16,7 @@ class TaskManager {
   Stream<String> get refreshStream => _refreshEventController.stream;
 
   final Map<String, int> _fileVersions = {};
+  final Map<String, List<String>> _taskPathMap = {};
 
   void init() {
     print("Initializing Global SSE Connection...");
@@ -46,6 +47,11 @@ class TaskManager {
                   data['message'].toString().contains('Convert')) {
                 _refreshEventController.add('refresh');
               }
+              // Check if we are monitoring this task
+              if (_taskPathMap.containsKey(taskId)) {
+                bumpVersions(_taskPathMap[taskId]!);
+                _taskPathMap.remove(taskId);
+              }
             }
 
             currentTasks[taskId] = data;
@@ -64,6 +70,10 @@ class TaskManager {
     final encodedPath = Uri.encodeComponent(path);
     final version = _fileVersions[path] ?? 0;
     return "$serverUrl/file/$encodedPath?v=$version";
+  }
+
+  void monitorTask(String taskId, List<String> paths) {
+    _taskPathMap[taskId] = paths;
   }
 
   void bumpVersions(List<String> paths) {

@@ -41,6 +41,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   bool isSelectionMode = false;
   Set<String> selectedPaths = {};
+
   int? _lastInteractionIndex;
 
   StreamSubscription? _refreshSubscription;
@@ -127,6 +128,8 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
         });
+
+
       }
     } catch (_) {}
   }
@@ -745,12 +748,15 @@ class _GalleryPageState extends State<GalleryPage> {
     if (selectedPaths.isEmpty) return;
     try {
       final pathsToUpdate = List<String>.from(selectedPaths);
-      await Dio().post(
+      final response = await Dio().post(
         '$serverUrl/api/rotate',
         data: {'paths': jsonEncode(selectedPaths.toList()), 'angle': angle},
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
-      TaskManager().bumpVersions(pathsToUpdate);
+      if (response.data != null && response.data['taskId'] != null) {
+        TaskManager().monitorTask(response.data['taskId'], pathsToUpdate);
+      }
+      
       setState(() {
         isSelectionMode = false;
         selectedPaths.clear();
