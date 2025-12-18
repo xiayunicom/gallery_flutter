@@ -239,17 +239,33 @@ class _GalleryPageState extends State<GalleryPage> {
                       bottom: 8,
                       left: 6,
                       right: 6,
-                      child: Text(
-                        item['name'],
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          height: 1.2,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            item['name'],
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (item['count'] != null)
+                            Text(
+                              "${item['count']} items",
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                color: Colors.white54,
+                                height: 1.2,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],
