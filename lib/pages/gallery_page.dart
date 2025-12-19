@@ -130,8 +130,6 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
         });
-
-
       }
     } catch (_) {}
   }
@@ -774,7 +772,7 @@ class _GalleryPageState extends State<GalleryPage> {
       if (response.data != null && response.data['taskId'] != null) {
         TaskManager().monitorTask(response.data['taskId'], pathsToUpdate);
       }
-      
+
       setState(() {
         isSelectionMode = false;
         selectedPaths.clear();
@@ -948,6 +946,22 @@ class _GalleryPageState extends State<GalleryPage> {
               onTap: () {
                 Navigator.pop(context);
                 _organizeFolderDialog(folder);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.first_page, color: Colors.cyanAccent),
+              title: const Text('First to Cover (Recursive)'),
+              onTap: () {
+                Navigator.pop(context);
+                _handleSetCover(folder, true);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.last_page, color: Colors.pinkAccent),
+              title: const Text('Last to Cover (Recursive)'),
+              onTap: () {
+                Navigator.pop(context);
+                _handleSetCover(folder, false);
               },
             ),
             ListTile(
@@ -1192,11 +1206,169 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  Future<void> _handleSetCover(dynamic folder, bool isFirst) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: Text(
+          isFirst ? "Set First as Cover?" : "Set Last as Cover?",
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Folder: ${folder['name']}",
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "This will RECURSIVELY check every subfolder.",
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "In each folder, the ${isFirst ? 'FIRST' : 'LAST'} image will be renamed to 'cover.*'.",
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Existing 'cover' images will be replaced!",
+              style: TextStyle(color: Colors.redAccent, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              "Execute",
+              style: TextStyle(
+                color: isFirst ? Colors.cyanAccent : Colors.pinkAccent,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Cover operation started in background..."),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      // Run in background
+      _setCoverRecursive(folder['path'], isFirst)
+          .then((_) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Cover operation completed!")),
+              );
+              _silentRefresh();
+            }
+          })
+          .catchError((e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("Cover operation failed: $e")),
+              );
+            }
+          });
+    }
+  }
+
+  Future<void> _setCoverRecursive(String path, bool isFirst) async {
+    try {
+      // 1. List contents
+      final response = await Dio().get(
+        '$serverUrl/api/ls',
+        queryParameters: {'path': path},
+      );
+      final list = response.data as List;
+
+      final folders = list.where((e) => e['type'] == 'folder').toList();
+      final images = list.where((e) => e['type'] == 'image').toList();
+
+      // 2. Process Recursively First (Depth-first or Breadth-first doesn't matter much here,
+      // but doing folders first effectively)
+      for (var subFolder in folders) {
+        await _setCoverRecursive(subFolder['path'], isFirst);
+      }
+
+      // 3. Process Current Folder
+      if (images.isEmpty) return;
+
+      // Sort images by name
+      // Simple case-insensitive compare. For better results use natural sort if available,
+      // but standard sort is usually sufficient for "first/last".
+      images.sort(
+        (a, b) => (a['name'] as String).toLowerCase().compareTo(
+          (b['name'] as String).toLowerCase(),
+        ),
+      );
+
+      final targetImage = isFirst ? images.first : images.last;
+      final targetName = targetImage['name'] as String;
+      final targetPath = targetImage['path'] as String;
+
+      // Check if already cover
+      // We assume "cover" means the filename stem is "cover".
+      // e.g. cover.jpg, cover.png
+      final dotIndex = targetName.lastIndexOf('.');
+      final stem = dotIndex == -1
+          ? targetName
+          : targetName.substring(0, dotIndex);
+      final ext = dotIndex == -1 ? "" : targetName.substring(dotIndex);
+
+      if (stem.toLowerCase() == 'cover') {
+        // Already a cover, nothing to do.
+        return;
+      }
+
+      // Look for existing covers to delete
+      for (var img in images) {
+        final imgName = img['name'] as String;
+        if (imgName == targetName) continue; // Skip the target itself
+
+        final iDot = imgName.lastIndexOf('.');
+        final iStem = iDot == -1 ? imgName : imgName.substring(0, iDot);
+        if (iStem.toLowerCase() == 'cover') {
+          // Found an old cover, delete it
+          await Dio().post(
+            '$serverUrl/api/delete',
+            data: FormData.fromMap({'path': img['path']}),
+          );
+        }
+      }
+
+      // Rename target to cover
+      final newName = "cover$ext";
+      await Dio().post(
+        '$serverUrl/api/rename',
+        data: FormData.fromMap({'path': targetPath, 'name': newName}),
+      );
+    } catch (e) {
+      debugPrint("Error processing folder $path: $e");
+      // Continue processing other folders even if one fails
+    }
+  }
+
   Future<void> _handleClearCache() async {
     try {
       // 1. 标准清除
       await DefaultCacheManager().emptyCache();
-      
+
       // 2. 强力清除：手动删除缓存目录
       try {
         final cacheDir = await getTemporaryDirectory();
@@ -1213,7 +1385,7 @@ class _GalleryPageState extends State<GalleryPage> {
       // 3. 内存清除
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cache cleared successfully')),
@@ -1221,9 +1393,9 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to clear cache: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to clear cache: $e')));
       }
     }
   }
@@ -2035,7 +2207,10 @@ class _GalleryPageState extends State<GalleryPage> {
                 const PopupMenuItem<String>(
                   value: 'clear_cache',
                   child: ListTile(
-                    leading: Icon(Icons.cleaning_services, color: Colors.black87),
+                    leading: Icon(
+                      Icons.cleaning_services,
+                      color: Colors.black87,
+                    ),
                     title: Text('Clear Cache'),
                     contentPadding: EdgeInsets.zero,
                   ),
