@@ -10,6 +10,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 import '../config.dart';
 import '../services/task_manager.dart';
@@ -1192,8 +1194,26 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _handleClearCache() async {
     try {
+      // 1. 标准清除
       await DefaultCacheManager().emptyCache();
+      
+      // 2. 强力清除：手动删除缓存目录
+      try {
+        final cacheDir = await getTemporaryDirectory();
+        if (cacheDir.existsSync()) {
+          final libCacheDir = Directory("${cacheDir.path}/libCachedImageData");
+          if (libCacheDir.existsSync()) {
+            await libCacheDir.delete(recursive: true);
+          }
+        }
+      } catch (e) {
+        debugPrint("Manual cache delete failed: $e");
+      }
+
+      // 3. 内存清除
       PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cache cleared successfully')),
