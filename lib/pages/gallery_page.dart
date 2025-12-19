@@ -202,7 +202,17 @@ class _GalleryPageState extends State<GalleryPage> {
                   });
                 }
               },
-              onSecondaryTap: () => _showFolderMenu(item),
+              onSecondaryTap: () {
+                if (isSelectionMode) {
+                  _handleTapSelection(globalIndex, item['path']);
+                } else {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(item['path']);
+                    _lastInteractionIndex = globalIndex;
+                  });
+                }
+              },
               child: Container(
                 decoration: BoxDecoration(
                   color: const Color(0xFF252528),
@@ -938,93 +948,6 @@ class _GalleryPageState extends State<GalleryPage> {
         ).showSnackBar(SnackBar(content: Text("Rename failed: $e")));
       }
     }
-  }
-
-  void _showFolderMenu(dynamic folder) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              folder['name'],
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const Divider(color: Colors.white24),
-            ListTile(
-              leading: const Icon(
-                Icons.drive_file_rename_outline,
-                color: Colors.blue,
-              ),
-              title: const Text('Rename'),
-              onTap: () {
-                Navigator.pop(context);
-                _renameFolderDialog(folder);
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.image_aspect_ratio,
-                color: Colors.green,
-              ),
-              title: const Text('Convert Content to WebP'),
-              onTap: () {
-                Navigator.pop(context);
-                _convertWebP(folder);
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.cleaning_services_outlined,
-                color: Colors.orangeAccent,
-              ),
-              title: const Text('Clean Junk Files'),
-              onTap: () {
-                Navigator.pop(context);
-                _cleanFolderDialog(folder);
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.sort_by_alpha,
-                color: Colors.purpleAccent,
-              ),
-              title: const Text('Organize Sub-files'),
-              onTap: () {
-                Navigator.pop(context);
-                _organizeFolderDialog(folder);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.first_page, color: Colors.cyanAccent),
-              title: const Text('First to Cover (Recursive)'),
-              onTap: () {
-                Navigator.pop(context);
-                _handleSetCover(folder, true);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.last_page, color: Colors.pinkAccent),
-              title: const Text('Last to Cover (Recursive)'),
-              onTap: () {
-                Navigator.pop(context);
-                _handleSetCover(folder, false);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Delete Folder'),
-              onTap: () {
-                Navigator.pop(context);
-                _deleteFolderDialog(folder);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _renameFolderDialog(dynamic folder) async {
