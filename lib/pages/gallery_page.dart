@@ -34,6 +34,7 @@ class _GalleryPageState extends State<GalleryPage> {
   List<dynamic> images = [];
 
   List<dynamic> get combinedMedia => [...videos, ...images];
+  List<dynamic> get allMedia => [...folders, ...videos, ...images];
 
   bool isLoading = true;
   String? errorMessage;
@@ -161,114 +162,149 @@ class _GalleryPageState extends State<GalleryPage> {
 
           bool shouldAutofocus = (index == 0);
 
-          return TVFocusableWidget(
-            key: ValueKey(item['path']),
-            autofocus: shouldAutofocus,
-            onTap: () {
-              if (isSelectionMode) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Cannot open folder in selection mode"),
-                  ),
-                );
-              } else {
-                Navigator.push(
-                  context,
-                  CupertinoPageRoute(
-                    builder: (context) => GalleryPage(path: item['path']),
-                  ),
-                );
-              }
-            },
-            onLongPress: () => _showFolderMenu(item),
-            onSecondaryTap: () => _showFolderMenu(item),
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF252528),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (hasCover)
-                      CachedNetworkImage(
-                        imageUrl: coverUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        memCacheHeight: 400,
-                        placeholder: (context, url) =>
-                            Container(color: const Color(0xFF202023)),
-                        errorWidget: (context, url, error) => const Center(
+          final isSelected = selectedPaths.contains(item['path']);
+          final int globalIndex = index;
+
+          return MetaData(
+            behavior: HitTestBehavior.translucent,
+            metaData: globalIndex,
+            child: TVFocusableWidget(
+              key: ValueKey(item['path']),
+              autofocus: shouldAutofocus,
+              onTap: () {
+                final isShiftPressed =
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftLeft,
+                    ) ||
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftRight,
+                    );
+
+                if (isSelectionMode || isShiftPressed) {
+                  _handleTapSelection(globalIndex, item['path']);
+                } else {
+                  Navigator.push(
+                    context,
+                    CupertinoPageRoute(
+                      builder: (context) => GalleryPage(path: item['path']),
+                    ),
+                  );
+                }
+              },
+              onLongPress: () {
+                if (isSelectionMode) {
+                  _handleTapSelection(globalIndex, item['path']);
+                } else {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(item['path']);
+                    _lastInteractionIndex = globalIndex;
+                  });
+                }
+              },
+              onSecondaryTap: () => _showFolderMenu(item),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF252528),
+                  borderRadius: BorderRadius.circular(4),
+                  border: isSelected
+                      ? Border.all(color: Colors.tealAccent, width: 2)
+                      : null,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (hasCover)
+                        CachedNetworkImage(
+                          imageUrl: coverUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          memCacheHeight: 400,
+                          placeholder: (context, url) =>
+                              Container(color: const Color(0xFF202023)),
+                          errorWidget: (context, url, error) => const Center(
+                            child: Icon(
+                              Icons.folder,
+                              size: 40,
+                              color: Colors.amber,
+                            ),
+                          ),
+                        ),
+                      if (!hasCover)
+                        const Center(
                           child: Icon(
                             Icons.folder,
                             size: 40,
                             color: Colors.amber,
                           ),
                         ),
-                      ),
-                    if (!hasCover)
-                      const Center(
-                        child: Icon(
-                          Icons.folder,
-                          size: 40,
-                          color: Colors.amber,
-                        ),
-                      ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: 60,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withOpacity(0.9),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      left: 6,
-                      right: 6,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            item['name'],
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
-                              height: 1.2,
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 60,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                Colors.black.withOpacity(0.9),
+                                Colors.transparent,
+                              ],
                             ),
                           ),
-                          if (item['count'] != null)
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 8,
+                        left: 6,
+                        right: 6,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             Text(
-                              "${item['count']} items",
+                              item['name'],
                               textAlign: TextAlign.center,
                               maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 9,
-                                color: Colors.white54,
+                                fontSize: 11,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
                                 height: 1.2,
                               ),
                             ),
-                        ],
+                            if (item['count'] != null)
+                              Text(
+                                "${item['count']} items",
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.white54,
+                                  height: 1.2,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      if (isSelected)
+                        Container(
+                          color: Colors.black45,
+                          child: const Center(
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.tealAccent,
+                              size: 32,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -292,73 +328,112 @@ class _GalleryPageState extends State<GalleryPage> {
           final item = videos[index];
           final path = item['path'];
           final fileUrl = TaskManager().getImgUrl(path);
-          final currentGlobalIndex = index;
+          final currentGlobalIndex =
+              folders.length + index; // Global index for videos
           final isSelected = selectedPaths.contains(path);
           final thumbUrl = _getThumbUrl(item);
 
           bool shouldAutofocus = (index == 0 && folders.isEmpty);
 
-          return TVFocusableWidget(
-            key: ValueKey(path),
-            autofocus: shouldAutofocus,
-            isSelected: isSelected,
-            onTap: () {
-              final isShiftPressed =
-                  HardwareKeyboard.instance.logicalKeysPressed.contains(
-                    LogicalKeyboardKey.shiftLeft,
-                  ) ||
-                  HardwareKeyboard.instance.logicalKeysPressed.contains(
-                    LogicalKeyboardKey.shiftRight,
+          return MetaData(
+            behavior: HitTestBehavior.translucent,
+            metaData: currentGlobalIndex,
+            child: TVFocusableWidget(
+              key: ValueKey(path),
+              autofocus: shouldAutofocus,
+              isSelected: isSelected,
+              onTap: () {
+                final isShiftPressed =
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftLeft,
+                    ) ||
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftRight,
+                    );
+                if (isSelectionMode || isShiftPressed) {
+                  _handleTapSelection(currentGlobalIndex, path);
+                } else {
+                  Navigator.push(
+                    context,
+                    CupertinoPageRoute(
+                      builder: (context) => VideoPlayerPage(videoUrl: fileUrl),
+                    ),
                   );
-              if (isSelectionMode || isShiftPressed) {
-                _handleTapSelection(currentGlobalIndex, path);
-              } else {
-                Navigator.push(
-                  context,
-                  CupertinoPageRoute(
-                    builder: (context) => VideoPlayerPage(videoUrl: fileUrl),
-                  ),
-                );
-              }
-            },
-            onSecondaryTap: () {
-              if (!isSelectionMode) {
-                setState(() {
-                  isSelectionMode = true;
-                  selectedPaths.add(path);
-                  _lastInteractionIndex = currentGlobalIndex;
-                });
-              }
-            },
-            onLongPress: () {
-              if (!isSelectionMode) {
-                setState(() {
-                  isSelectionMode = true;
-                  selectedPaths.add(path);
-                  _lastInteractionIndex = currentGlobalIndex;
-                });
-                HapticFeedback.mediumImpact();
-              }
-            },
-            child: Hero(
-              tag: isSelectionMode ? "no-hero-$path" : "video-$path",
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      decoration: const BoxDecoration(color: Color(0xFF202023)),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        fit: StackFit.expand,
-                        children: [
-                          if (thumbUrl.isNotEmpty)
-                            CachedNetworkImage(
-                              imageUrl: thumbUrl,
-                              fit: BoxFit.cover,
-                              memCacheHeight: 400,
-                              placeholder: (context, url) => Container(
+                }
+              },
+              onSecondaryTap: () {
+                if (!isSelectionMode) {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(path);
+                    _lastInteractionIndex = currentGlobalIndex;
+                  });
+                }
+              },
+              onLongPress: () {
+                if (!isSelectionMode) {
+                  setState(() {
+                    isSelectionMode = true;
+                    selectedPaths.add(path);
+                    _lastInteractionIndex = currentGlobalIndex;
+                  });
+                  HapticFeedback.mediumImpact();
+                }
+              },
+              child: Hero(
+                tag: isSelectionMode ? "no-hero-$path" : "video-$path",
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF202023),
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          fit: StackFit.expand,
+                          children: [
+                            if (thumbUrl.isNotEmpty)
+                              CachedNetworkImage(
+                                imageUrl: thumbUrl,
+                                fit: BoxFit.cover,
+                                memCacheHeight: 400,
+                                placeholder: (context, url) => Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Color(0xFF2C2C2E),
+                                        Color(0xFF1C1C1E),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Color(0xFF2C2C2E),
+                                        Color(0xFF1C1C1E),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.videocam_off,
+                                      color: Colors.white12,
+                                      size: 30,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
                                 decoration: const BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: [
@@ -370,145 +445,113 @@ class _GalleryPageState extends State<GalleryPage> {
                                   ),
                                 ),
                               ),
-                              errorWidget: (context, url, error) => Container(
-                                decoration: const BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Color(0xFF2C2C2E),
-                                      Color(0xFF1C1C1E),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                ),
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.videocam_off,
-                                    color: Colors.white12,
-                                    size: 30,
-                                  ),
-                                ),
-                              ),
-                            )
-                          else
                             Container(
                               decoration: const BoxDecoration(
                                 gradient: LinearGradient(
-                                  colors: [
-                                    Color(0xFF2C2C2E),
-                                    Color(0xFF1C1C1E),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Colors.transparent, Colors.black54],
+                                  stops: [0.6, 1.0],
                                 ),
                               ),
                             ),
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Colors.transparent, Colors.black54],
-                                stops: [0.6, 1.0],
+                            Positioned(
+                              right: -5,
+                              bottom: -5,
+                              child: Icon(
+                                Icons.videocam,
+                                size: 35,
+                                color: Colors.white.withOpacity(0.1),
                               ),
                             ),
-                          ),
-                          Positioned(
-                            right: -5,
-                            bottom: -5,
-                            child: Icon(
-                              Icons.videocam,
-                              size: 35,
-                              color: Colors.white.withOpacity(0.1),
-                            ),
-                          ),
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black54,
-                              ),
-                              child: const Icon(
-                                Icons.play_arrow,
-                                size: 24,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 6,
-                            left: 6,
-                            right: 6,
-                            child: Text(
-                              item['name'],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                                shadows: [
-                                  Shadow(
-                                    blurRadius: 2,
-                                    color: Colors.black,
-                                    offset: Offset(0, 1),
-                                  ),
-                                ],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: const Text(
-                                "VIDEO",
-                                style: TextStyle(
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.black54,
+                                ),
+                                child: const Icon(
+                                  Icons.play_arrow,
+                                  size: 24,
                                   color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (isSelectionMode)
-                    Container(
-                      color: isSelected ? Colors.black45 : Colors.transparent,
-                      child: Align(
-                        alignment: Alignment.topRight,
-                        child: Padding(
-                          padding: const EdgeInsets.all(4.0),
-                          child: Icon(
-                            isSelected
-                                ? Icons.check_circle
-                                : Icons.circle_outlined,
-                            color: isSelected
-                                ? Colors.tealAccent
-                                : Colors.white70,
-                            size: 20,
-                          ),
+                            Positioned(
+                              bottom: 6,
+                              left: 6,
+                              right: 6,
+                              child: Text(
+                                item['name'],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  shadows: [
+                                    Shadow(
+                                      blurRadius: 2,
+                                      color: Colors.black,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black87,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                                child: const Text(
+                                  "VIDEO",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: VideoResolutionTag(path: path),
-                  ),
-                ],
+                    if (isSelectionMode)
+                      Container(
+                        color: isSelected ? Colors.black45 : Colors.transparent,
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(4.0),
+                            child: Icon(
+                              isSelected
+                                  ? Icons.check_circle
+                                  : Icons.circle_outlined,
+                              color: isSelected
+                                  ? Colors.tealAccent
+                                  : Colors.white70,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: VideoResolutionTag(path: path),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -529,8 +572,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   void _selectAll() {
     setState(() {
-      selectedPaths = combinedMedia.map((e) => e['path'] as String).toSet();
-      _lastInteractionIndex = combinedMedia.length - 1;
+      selectedPaths = allMedia.map((e) => e['path'] as String).toSet();
+      _lastInteractionIndex = allMedia.length - 1;
     });
   }
 
@@ -547,10 +590,10 @@ class _GalleryPageState extends State<GalleryPage> {
       if (isShiftPressed) {
         isSelectionMode = true;
         if (_lastInteractionIndex != null) {
-          final allMedia = combinedMedia;
+          final mediaList = allMedia;
           bool targetState = true;
-          if (_lastInteractionIndex! < allMedia.length) {
-            final lastPath = allMedia[_lastInteractionIndex!]['path'];
+          if (_lastInteractionIndex! < mediaList.length) {
+            final lastPath = mediaList[_lastInteractionIndex!]['path'];
             targetState = selectedPaths.contains(lastPath);
           }
           _selectRange(_lastInteractionIndex!, index, targetState);
@@ -571,10 +614,10 @@ class _GalleryPageState extends State<GalleryPage> {
   void _selectRange(int start, int end, bool targetState) {
     int lower = min(start, end);
     int upper = max(start, end);
-    final allMedia = combinedMedia;
+    final mediaList = allMedia;
     for (int i = lower; i <= upper; i++) {
-      if (i < allMedia.length) {
-        final p = allMedia[i]['path'];
+      if (i < mediaList.length) {
+        final p = mediaList[i]['path'];
         if (targetState) {
           selectedPaths.add(p);
         } else {
@@ -585,18 +628,20 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   void _toggleItemSelection(int index, String path) {
-    if (selectedPaths.contains(path)) {
-      selectedPaths.remove(path);
-      if (selectedPaths.isEmpty) {
-        isSelectionMode = false;
-        _lastInteractionIndex = null;
+    setState(() {
+      if (selectedPaths.contains(path)) {
+        selectedPaths.remove(path);
+        if (selectedPaths.isEmpty) {
+          isSelectionMode = false;
+          _lastInteractionIndex = null;
+        } else {
+          _lastInteractionIndex = index;
+        }
       } else {
+        selectedPaths.add(path);
         _lastInteractionIndex = index;
       }
-    } else {
-      selectedPaths.add(path);
-      _lastInteractionIndex = index;
-    }
+    });
   }
 
   // === 优化后的手势选择逻辑 ===
@@ -619,11 +664,12 @@ class _GalleryPageState extends State<GalleryPage> {
         _dragLastIndex = hitIndex;
         _dragStartSelectedSnapshot = Set.from(selectedPaths);
 
-        final allMedia = combinedMedia;
-        final path = allMedia[hitIndex]['path'];
-        _dragSelectTargetState = !selectedPaths.contains(path);
-
-        _updateSelectionState(hitIndex, _dragSelectTargetState!);
+        final mediaList = allMedia;
+        if (hitIndex < mediaList.length) {
+          final path = mediaList[hitIndex]['path'];
+          _dragSelectTargetState = !selectedPaths.contains(path);
+          _updateSelectionState(hitIndex, _dragSelectTargetState!);
+        }
         _lastInteractionIndex = hitIndex;
         _suppressNextTap = true;
       });
@@ -679,12 +725,12 @@ class _GalleryPageState extends State<GalleryPage> {
   void _applyRangeSelection(int start, int end) {
     final lower = min(start, end);
     final upper = max(start, end);
-    final allMedia = combinedMedia;
+    final mediaList = allMedia;
     setState(() {
       selectedPaths = Set.from(_dragStartSelectedSnapshot);
       for (int i = lower; i <= upper; i++) {
-        if (i < allMedia.length) {
-          final path = allMedia[i]['path'];
+        if (i < mediaList.length) {
+          final path = mediaList[i]['path'];
           if (_dragSelectTargetState == true) {
             selectedPaths.add(path);
           } else {
@@ -696,9 +742,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   void _updateSelectionState(int index, bool select) {
-    final allMedia = combinedMedia;
-    if (index < allMedia.length) {
-      final path = allMedia[index]['path'];
+    final mediaList = allMedia;
+    if (index < mediaList.length) {
+      final path = mediaList[index]['path'];
       if (select) {
         selectedPaths.add(path);
       } else {
@@ -831,10 +877,13 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _renameSelected() async {
     if (selectedPaths.length != 1) return;
     final String path = selectedPaths.first;
-    final item = combinedMedia.firstWhere(
+    var item = combinedMedia.firstWhere(
       (e) => e['path'] == path,
       orElse: () => null,
     );
+    if (item == null) {
+      item = folders.firstWhere((e) => e['path'] == path, orElse: () => null);
+    }
     if (item == null) return;
     final String currentName = item['name'];
     TextEditingController controller = TextEditingController(text: currentName);
@@ -1203,6 +1252,181 @@ class _GalleryPageState extends State<GalleryPage> {
           context,
         ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
       }
+    }
+  }
+
+  bool get _areAllSelectedItemsFolders {
+    if (selectedPaths.isEmpty) return false;
+    // Check if every selected path exists in the 'folders' list
+    for (final path in selectedPaths) {
+      if (!folders.any((f) => f['path'] == path)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _batchConvertWebP() async {
+    for (final path in selectedPaths) {
+      await Dio().post(
+        '$serverUrl/api/convert-webp',
+        data: FormData.fromMap({'path': path}),
+      );
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Batch WebP Conversion tasks started...")),
+    );
+    setState(() {
+      isSelectionMode = false;
+      selectedPaths.clear();
+    });
+  }
+
+  Future<void> _batchClean() async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text(
+          "Batch Clean Junk?",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "Clean ${selectedPaths.length} folders?\nThis cannot be undone.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              "Clean",
+              style: TextStyle(color: Colors.orangeAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      for (final path in selectedPaths) {
+        try {
+          await Dio().post(
+            '$serverUrl/api/clean',
+            data: FormData.fromMap({'path': path}),
+          );
+        } catch (e) {
+          /* ignore individual errors */
+        }
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Batch clean started...")));
+      setState(() {
+        isSelectionMode = false;
+        selectedPaths.clear();
+      });
+    }
+  }
+
+  Future<void> _batchOrganize() async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: const Text(
+          "Batch Organize?",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "Organize ${selectedPaths.length} folders?\nFilenames will be lost!",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              "Organize",
+              style: TextStyle(color: Colors.purpleAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      for (final path in selectedPaths) {
+        try {
+          await Dio().post(
+            '$serverUrl/api/organize',
+            data: FormData.fromMap({'path': path}),
+          );
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Batch organize started...")),
+      );
+      setState(() {
+        isSelectionMode = false;
+        selectedPaths.clear();
+      });
+    }
+  }
+
+  Future<void> _batchSetCover(bool isFirst) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF252528),
+        title: Text(
+          isFirst ? "Batch First to Cover?" : "Batch Last to Cover?",
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "Process ${selectedPaths.length} folders recursively?",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              "Execute",
+              style: TextStyle(color: Colors.cyanAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Batch cover operation started...")),
+      );
+      final List<String> targets = List.from(selectedPaths);
+      setState(() {
+        isSelectionMode = false;
+        selectedPaths.clear();
+      });
+
+      for (final path in targets) {
+        // Run sequentially or parallel? Parallel might flood server, but these are client logic calls.
+        // Sequential is safer.
+        await _setCoverRecursive(path, isFirst);
+      }
+      if (mounted) _silentRefresh();
     }
   }
 
@@ -2097,9 +2321,12 @@ class _GalleryPageState extends State<GalleryPage> {
   Widget _buildBottomBtn(
     IconData icon,
     String label,
-    VoidCallback onTap, {
+    VoidCallback? onTap, {
     Color color = Colors.white,
   }) {
+    final bool isDisabled = onTap == null;
+    final Color finalColor = isDisabled ? Colors.white24 : color;
+
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -2107,9 +2334,9 @@ class _GalleryPageState extends State<GalleryPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color),
+            Icon(icon, color: finalColor),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            Text(label, style: TextStyle(color: finalColor, fontSize: 12)),
           ],
         ),
       ),
@@ -2143,7 +2370,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final List<Widget> imageRows = _computeJustifiedRows(
       screenWidth,
       images,
-      globalStartIndex: videos.length,
+      globalStartIndex: folders.length + videos.length,
     );
 
     return Scaffold(
@@ -2274,33 +2501,84 @@ class _GalleryPageState extends State<GalleryPage> {
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildBottomBtn(
-                        Icons.rotate_left,
-                        "Left -90°",
-                        () => _rotateSelected(-90),
-                      ),
-                      _buildBottomBtn(
-                        Icons.rotate_right,
-                        "Right +90°",
-                        () => _rotateSelected(90),
-                      ),
-                      if (selectedPaths.length == 1)
-                        _buildBottomBtn(
-                          Icons.drive_file_rename_outline,
-                          "Rename",
-                          _renameSelected,
-                          color: Colors.blueAccent,
-                        ),
-                      _buildBottomBtn(
-                        Icons.delete,
-                        "Delete",
-                        _deleteSelected,
-                        color: Colors.redAccent,
-                      ),
-                    ],
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: _areAllSelectedItemsFolders
+                          ? [
+                              _buildBottomBtn(
+                                Icons.drive_file_rename_outline,
+                                "Rename",
+                                selectedPaths.length == 1
+                                    ? _renameSelected
+                                    : null,
+                                color: Colors.blueAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.image_aspect_ratio,
+                                "WebP",
+                                _batchConvertWebP,
+                                color: Colors.green,
+                              ),
+                              _buildBottomBtn(
+                                Icons.cleaning_services_outlined,
+                                "Clean",
+                                _batchClean,
+                                color: Colors.orangeAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.sort_by_alpha,
+                                "Organize",
+                                _batchOrganize,
+                                color: Colors.purpleAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.first_page,
+                                "First Cover",
+                                () => _batchSetCover(true),
+                                color: Colors.cyanAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.last_page,
+                                "Last Cover",
+                                () => _batchSetCover(false),
+                                color: Colors.pinkAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.delete,
+                                "Delete",
+                                _deleteSelected,
+                                color: Colors.redAccent,
+                              ),
+                            ]
+                          : [
+                              _buildBottomBtn(
+                                Icons.rotate_left,
+                                "Left -90°",
+                                () => _rotateSelected(-90),
+                              ),
+                              _buildBottomBtn(
+                                Icons.rotate_right,
+                                "Right +90°",
+                                () => _rotateSelected(90),
+                              ),
+                              _buildBottomBtn(
+                                Icons.drive_file_rename_outline,
+                                "Rename",
+                                selectedPaths.length == 1
+                                    ? _renameSelected
+                                    : null,
+                                color: Colors.blueAccent,
+                              ),
+                              _buildBottomBtn(
+                                Icons.delete,
+                                "Delete",
+                                _deleteSelected,
+                                color: Colors.redAccent,
+                              ),
+                            ],
+                    ),
                   ),
                 ),
               ),
