@@ -1345,11 +1345,31 @@ class _GalleryPageState extends State<GalleryPage> {
       });
 
       for (final path in targets) {
-        // Run sequentially or parallel? Parallel might flood server, but these are client logic calls.
-        // Sequential is safer.
+        // Run sequentially to avoid server overload
         await _setCoverRecursive(path, isFirst);
       }
-      if (mounted) _silentRefresh();
+
+      if (mounted) {
+        await _silentRefresh();
+
+        // Find the new cover paths for the updated folders and bump version
+        // This ensures TaskManager returns a URL with a new 'v' param
+        final List<String> pathsToBump = [];
+        for (var f in folders) {
+          if (targets.contains(f['path']) && f['cover_path'] != null) {
+            final String cPath = f['cover_path'];
+            if (cPath.isNotEmpty) {
+              pathsToBump.add(cPath);
+            }
+          }
+        }
+
+        if (pathsToBump.isNotEmpty) {
+          TaskManager().bumpVersions(pathsToBump);
+        }
+
+        setState(() {}); // Trigger rebuild
+      }
     }
   }
 
