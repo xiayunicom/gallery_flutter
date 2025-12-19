@@ -62,7 +62,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   double? _lastScreenWidth;
   // Cache for Justified Layout
-  List<Widget>? _cachedImageRows;
+  List<_RowLayout>? _cachedRowLayouts;
   int? _cachedImageCount;
 
   static const double kSpacing = 1.0;
@@ -108,7 +108,7 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
-          _cachedImageRows = null; // Invalidate cache
+          _cachedRowLayouts = null; // Invalidate cache
         });
       }
     } catch (e) {
@@ -1399,83 +1399,93 @@ class _GalleryPageState extends State<GalleryPage> {
   }) {
     if (items.isEmpty) return [];
 
-    // Check cache
-    if (_cachedImageRows != null &&
-        screenWidth == _lastScreenWidth &&
-        items.length == _cachedImageCount) {
-      return _cachedImageRows!;
-    }
+    // 1. Calculate Layout (or use cache)
+    // We cache the LAYOUT (sizes, groupings), not the Widgets.
+    // This allows rebuilding Widgets with new state (selection) without re-calculating layout.
+    if (_cachedRowLayouts == null ||
+        screenWidth != _lastScreenWidth ||
+        items.length != _cachedImageCount) {
+      _lastScreenWidth = screenWidth;
+      _cachedImageCount = items.length;
 
-    _lastScreenWidth = screenWidth;
-    _cachedImageCount = items.length;
+      List<_RowLayout> newLayouts = [];
 
-    double targetRowHeight = 300.0;
-    if (screenWidth >= 600 && screenWidth < 1400) {
-      targetRowHeight = 360.0;
-    }
-
-    const double spacing = kSpacing;
-    final double contentWidth = screenWidth - (spacing * 2);
-    List<Widget> rows = [];
-    List<dynamic> currentRowItems = [];
-
-    int currentRowStartLocalIndex = 0;
-    double currentRowAspectRatioSum = 0.0;
-    double? previousRowFinalHeight;
-
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      double w = (item['w'] as num?)?.toDouble() ?? 100;
-      double h = (item['h'] as num?)?.toDouble() ?? 100;
-      if (w <= 0 || h <= 0) {
-        w = 100;
-        h = 100;
+      double targetRowHeight = 300.0;
+      if (screenWidth >= 600 && screenWidth < 1400) {
+        targetRowHeight = 360.0;
       }
-      double aspectRatio = w / h;
 
-      currentRowItems.add(item);
-      currentRowAspectRatioSum += aspectRatio;
+      const double spacing = kSpacing;
+      final double contentWidth = screenWidth - (spacing * 2);
+      List<dynamic> currentRowItems = [];
+      int currentRowStartLocalIndex = 0;
+      double currentRowAspectRatioSum = 0.0;
+      double? previousRowFinalHeight;
 
-      double totalGapWidth = (currentRowItems.length - 1) * spacing;
-      double projectedHeight =
-          (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
-
-      if (projectedHeight <= targetRowHeight || i == items.length - 1) {
-        bool isLastRow = i == items.length - 1;
-        double finalHeight = projectedHeight;
-
-        if (isLastRow) {
-          double referenceHeight = previousRowFinalHeight ?? targetRowHeight;
-          if (projectedHeight > referenceHeight) {
-            finalHeight = referenceHeight;
-          } else {
-            finalHeight = projectedHeight;
-          }
-        } else {
-          if (finalHeight > targetRowHeight * 1.5) {
-            finalHeight = targetRowHeight;
-          }
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        double w = (item['w'] as num?)?.toDouble() ?? 100;
+        double h = (item['h'] as num?)?.toDouble() ?? 100;
+        if (w <= 0 || h <= 0) {
+          w = 100;
+          h = 100;
         }
+        double aspectRatio = w / h;
 
-        rows.add(
-          _buildJustifiedRow(
-            currentRowItems,
-            finalHeight,
-            spacing,
-            isLastRow: isLastRow,
-            localStartIndex: currentRowStartLocalIndex,
-            globalStartIndex: globalStartIndex,
-          ),
-        );
+        currentRowItems.add(item);
+        currentRowAspectRatioSum += aspectRatio;
 
-        previousRowFinalHeight = finalHeight;
-        currentRowItems = [];
-        currentRowAspectRatioSum = 0.0;
-        currentRowStartLocalIndex = i + 1;
+        double totalGapWidth = (currentRowItems.length - 1) * spacing;
+        double projectedHeight =
+            (contentWidth - totalGapWidth) / currentRowAspectRatioSum;
+
+        if (projectedHeight <= targetRowHeight || i == items.length - 1) {
+          bool isLastRow = i == items.length - 1;
+          double finalHeight = projectedHeight;
+
+          if (isLastRow) {
+            double referenceHeight = previousRowFinalHeight ?? targetRowHeight;
+            if (projectedHeight > referenceHeight) {
+              finalHeight = referenceHeight;
+            } else {
+              finalHeight = projectedHeight;
+            }
+          } else {
+            if (finalHeight > targetRowHeight * 1.5) {
+              finalHeight = targetRowHeight;
+            }
+          }
+
+          newLayouts.add(
+            _RowLayout(
+              items: List.from(currentRowItems),
+              height: finalHeight,
+              isLastRow: isLastRow,
+              localStartIndex: currentRowStartLocalIndex,
+            ),
+          );
+
+          previousRowFinalHeight = finalHeight;
+          currentRowItems = [];
+          currentRowAspectRatioSum = 0.0;
+          currentRowStartLocalIndex = i + 1;
+        }
       }
+      _cachedRowLayouts = newLayouts;
     }
-    _cachedImageRows = rows;
-    return rows;
+
+    // 2. Build Widgets from Cached Layout
+    // This runs on every build, picking up latest selection state
+    return _cachedRowLayouts!.map((layout) {
+      return _buildJustifiedRow(
+        layout.items,
+        layout.height,
+        kSpacing,
+        isLastRow: layout.isLastRow,
+        localStartIndex: layout.localStartIndex,
+        globalStartIndex: globalStartIndex,
+      );
+    }).toList();
   }
 
   Widget _buildJustifiedRow(
@@ -1911,4 +1921,18 @@ class _GalleryPageState extends State<GalleryPage> {
           : null,
     );
   }
+}
+
+class _RowLayout {
+  final List<dynamic> items;
+  final double height;
+  final bool isLastRow;
+  final int localStartIndex;
+
+  _RowLayout({
+    required this.items,
+    required this.height,
+    required this.isLastRow,
+    required this.localStartIndex,
+  });
 }
