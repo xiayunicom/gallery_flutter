@@ -304,13 +304,17 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   void _toggleSelectionMode() {
-    _selectionManager.toggleSelectionMode();
+    setState(() {
+      _selectionManager.toggleSelectionMode();
+    });
   }
 
   void _selectAll() {
-    _selectionManager.selectAll(
-      allMedia.map((e) => e['path'] as String).toList(),
-    );
+    setState(() {
+      _selectionManager.selectAll(
+        allMedia.map((e) => e['path'] as String).toList(),
+      );
+    });
   }
 
   void _handleTapSelection(int index, String path) {
