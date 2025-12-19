@@ -6,7 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+
 import 'package:dio/dio.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -14,8 +14,10 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
 import '../config.dart';
+import '../services/selection_state_manager.dart';
 import '../services/task_manager.dart';
-import '../widgets/tv_focusable_widget.dart';
+
+import '../widgets/gallery_items.dart';
 import 'video_player_page.dart';
 import 'photo_preview_page.dart';
 
@@ -42,10 +44,11 @@ class _GalleryPageState extends State<GalleryPage> {
   // 控制列表是否可滚动，用于在拖拽选择时锁定列表
   ScrollPhysics _scrollPhysics = const AlwaysScrollableScrollPhysics();
 
-  bool isSelectionMode = false;
-  Set<String> selectedPaths = {};
+  final SelectionStateManager _selectionManager = SelectionStateManager();
 
-  int? _lastInteractionIndex;
+  // bool _selectionManager.isSelectionMode = false; // Managed by _selectionManager
+  // Set<String> _selectionManager.selectedPaths = {}; // Managed by _selectionManager
+  // int? _selectionManager.lastInteractionIndex; // Managed by _selectionManager
 
   StreamSubscription? _refreshSubscription;
 
@@ -58,6 +61,9 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _suppressNextTap = false;
 
   double? _lastScreenWidth;
+  // Cache for Justified Layout
+  List<Widget>? _cachedImageRows;
+  int? _cachedImageCount;
 
   static const double kSpacing = 1.0;
 
@@ -83,12 +89,8 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _fetchData() async {
-    if (isSelectionMode) {
-      setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
-        _lastInteractionIndex = null;
-      });
+    if (_selectionManager.isSelectionMode) {
+      _selectionManager.clearSelection();
     }
     setState(() {
       isLoading = true;
@@ -106,6 +108,7 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
           isLoading = false;
+          _cachedImageRows = null; // Invalidate cache
         });
       }
     } catch (e) {
@@ -162,14 +165,19 @@ class _GalleryPageState extends State<GalleryPage> {
 
           bool shouldAutofocus = (index == 0);
 
-          final isSelected = selectedPaths.contains(item['path']);
+          final isSelected = _selectionManager.selectedPaths.contains(
+            item['path'],
+          );
           final int globalIndex = index;
 
           return MetaData(
             behavior: HitTestBehavior.translucent,
             metaData: globalIndex,
-            child: TVFocusableWidget(
-              key: ValueKey(item['path']),
+            child: GalleryFolderItem(
+              folder: item,
+              coverUrl: coverUrl,
+              isSelected: isSelected,
+              isSelectionMode: _selectionManager.isSelectionMode,
               autofocus: shouldAutofocus,
               onTap: () {
                 final isShiftPressed =
@@ -180,7 +188,7 @@ class _GalleryPageState extends State<GalleryPage> {
                       LogicalKeyboardKey.shiftRight,
                     );
 
-                if (isSelectionMode || isShiftPressed) {
+                if (_selectionManager.isSelectionMode || isShiftPressed) {
                   _handleTapSelection(globalIndex, item['path']);
                 } else {
                   Navigator.push(
@@ -192,131 +200,27 @@ class _GalleryPageState extends State<GalleryPage> {
                 }
               },
               onLongPress: () {
-                if (isSelectionMode) {
+                if (_selectionManager.isSelectionMode) {
                   _handleTapSelection(globalIndex, item['path']);
                 } else {
                   setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(item['path']);
-                    _lastInteractionIndex = globalIndex;
+                    _selectionManager.setSelectionMode(true);
+                    _selectionManager.updateSelectionState(item['path'], true);
+                    _selectionManager.setLastInteractionIndex(globalIndex);
                   });
                 }
               },
               onSecondaryTap: () {
-                if (isSelectionMode) {
+                if (_selectionManager.isSelectionMode) {
                   _handleTapSelection(globalIndex, item['path']);
                 } else {
                   setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(item['path']);
-                    _lastInteractionIndex = globalIndex;
+                    _selectionManager.setSelectionMode(true);
+                    _selectionManager.updateSelectionState(item['path'], true);
+                    _selectionManager.setLastInteractionIndex(globalIndex);
                   });
                 }
               },
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF252528),
-                  borderRadius: BorderRadius.circular(4),
-                  border: isSelected
-                      ? Border.all(color: Colors.tealAccent, width: 2)
-                      : null,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (hasCover)
-                        CachedNetworkImage(
-                          imageUrl: coverUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                          memCacheHeight: 400,
-                          placeholder: (context, url) =>
-                              Container(color: const Color(0xFF202023)),
-                          errorWidget: (context, url, error) => const Center(
-                            child: Icon(
-                              Icons.folder,
-                              size: 40,
-                              color: Colors.amber,
-                            ),
-                          ),
-                        ),
-                      if (!hasCover)
-                        const Center(
-                          child: Icon(
-                            Icons.folder,
-                            size: 40,
-                            color: Colors.amber,
-                          ),
-                        ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        height: 60,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withOpacity(0.9),
-                                Colors.transparent,
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 8,
-                        left: 6,
-                        right: 6,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              item['name'],
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                                height: 1.2,
-                              ),
-                            ),
-                            if (item['count'] != null)
-                              Text(
-                                "${item['count']} items",
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.white54,
-                                  height: 1.2,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (isSelected)
-                        Container(
-                          color: Colors.black45,
-                          child: const Center(
-                            child: Icon(
-                              Icons.check_circle,
-                              color: Colors.tealAccent,
-                              size: 32,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
             ),
           );
         }, childCount: folders.length),
@@ -337,10 +241,9 @@ class _GalleryPageState extends State<GalleryPage> {
         delegate: SliverChildBuilderDelegate((context, index) {
           final item = videos[index];
           final path = item['path'];
-          final fileUrl = TaskManager().getImgUrl(path);
           final currentGlobalIndex =
               folders.length + index; // Global index for videos
-          final isSelected = selectedPaths.contains(path);
+          final isSelected = _selectionManager.selectedPaths.contains(path);
           final thumbUrl = _getThumbUrl(item);
 
           bool shouldAutofocus = (index == 0 && folders.isEmpty);
@@ -348,10 +251,12 @@ class _GalleryPageState extends State<GalleryPage> {
           return MetaData(
             behavior: HitTestBehavior.translucent,
             metaData: currentGlobalIndex,
-            child: TVFocusableWidget(
-              key: ValueKey(path),
-              autofocus: shouldAutofocus,
+            child: GalleryVideoItem(
+              video: item,
+              thumbUrl: thumbUrl,
               isSelected: isSelected,
+              isSelectionMode: _selectionManager.isSelectionMode,
+              autofocus: shouldAutofocus,
               onTap: () {
                 final isShiftPressed =
                     HardwareKeyboard.instance.logicalKeysPressed.contains(
@@ -360,209 +265,37 @@ class _GalleryPageState extends State<GalleryPage> {
                     HardwareKeyboard.instance.logicalKeysPressed.contains(
                       LogicalKeyboardKey.shiftRight,
                     );
-                if (isSelectionMode || isShiftPressed) {
+                if (_selectionManager.isSelectionMode || isShiftPressed) {
                   _handleTapSelection(currentGlobalIndex, path);
                 } else {
                   Navigator.push(
                     context,
                     CupertinoPageRoute(
-                      builder: (context) => VideoPlayerPage(videoUrl: fileUrl),
+                      builder: (context) => VideoPlayerPage(
+                        videoUrl: TaskManager().getImgUrl(path),
+                      ),
                     ),
                   );
                 }
               },
               onSecondaryTap: () {
-                if (!isSelectionMode) {
-                  setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
-                  });
+                if (!_selectionManager.isSelectionMode) {
+                  _selectionManager.setSelectionMode(true);
+                  _selectionManager.toggleItem(path, currentGlobalIndex);
                 }
               },
               onLongPress: () {
-                if (!isSelectionMode) {
+                if (!_selectionManager.isSelectionMode) {
                   setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
+                    _selectionManager.setSelectionMode(true);
+                    _selectionManager.updateSelectionState(path, true);
+                    _selectionManager.setLastInteractionIndex(
+                      currentGlobalIndex,
+                    );
                   });
                   HapticFeedback.mediumImpact();
                 }
               },
-              child: Hero(
-                tag: isSelectionMode ? "no-hero-$path" : "video-$path",
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF202023),
-                        ),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          fit: StackFit.expand,
-                          children: [
-                            if (thumbUrl.isNotEmpty)
-                              CachedNetworkImage(
-                                imageUrl: thumbUrl,
-                                fit: BoxFit.cover,
-                                memCacheHeight: 400,
-                                placeholder: (context, url) => Container(
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Color(0xFF2C2C2E),
-                                        Color(0xFF1C1C1E),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                ),
-                                errorWidget: (context, url, error) => Container(
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Color(0xFF2C2C2E),
-                                        Color(0xFF1C1C1E),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.videocam_off,
-                                      color: Colors.white12,
-                                      size: 30,
-                                    ),
-                                  ),
-                                ),
-                              )
-                            else
-                              Container(
-                                decoration: const BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Color(0xFF2C2C2E),
-                                      Color(0xFF1C1C1E),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                ),
-                              ),
-                            Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [Colors.transparent, Colors.black54],
-                                  stops: [0.6, 1.0],
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              right: -5,
-                              bottom: -5,
-                              child: Icon(
-                                Icons.videocam,
-                                size: 35,
-                                color: Colors.white.withOpacity(0.1),
-                              ),
-                            ),
-                            Center(
-                              child: Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.black54,
-                                ),
-                                child: const Icon(
-                                  Icons.play_arrow,
-                                  size: 24,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 6,
-                              left: 6,
-                              right: 6,
-                              child: Text(
-                                item['name'],
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 2,
-                                      color: Colors.black,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black87,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                                child: const Text(
-                                  "VIDEO",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (isSelectionMode)
-                      Container(
-                        color: isSelected ? Colors.black45 : Colors.transparent,
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: Icon(
-                              isSelected
-                                  ? Icons.check_circle
-                                  : Icons.circle_outlined,
-                              color: isSelected
-                                  ? Colors.tealAccent
-                                  : Colors.white70,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: VideoResolutionTag(path: path),
-                    ),
-                  ],
-                ),
-              ),
             ),
           );
         }, childCount: videos.length),
@@ -571,20 +304,13 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   void _toggleSelectionMode() {
-    setState(() {
-      isSelectionMode = !isSelectionMode;
-      if (!isSelectionMode) {
-        selectedPaths.clear();
-        _lastInteractionIndex = null;
-      }
-    });
+    _selectionManager.toggleSelectionMode();
   }
 
   void _selectAll() {
-    setState(() {
-      selectedPaths = allMedia.map((e) => e['path'] as String).toSet();
-      _lastInteractionIndex = allMedia.length - 1;
-    });
+    _selectionManager.selectAll(
+      allMedia.map((e) => e['path'] as String).toList(),
+    );
   }
 
   void _handleTapSelection(int index, String path) {
@@ -598,20 +324,26 @@ class _GalleryPageState extends State<GalleryPage> {
 
     setState(() {
       if (isShiftPressed) {
-        isSelectionMode = true;
-        if (_lastInteractionIndex != null) {
+        _selectionManager.setSelectionMode(true);
+        if (_selectionManager.lastInteractionIndex != null) {
           final mediaList = allMedia;
           bool targetState = true;
-          if (_lastInteractionIndex! < mediaList.length) {
-            final lastPath = mediaList[_lastInteractionIndex!]['path'];
-            targetState = selectedPaths.contains(lastPath);
+          if (_selectionManager.lastInteractionIndex! < mediaList.length) {
+            final lastPath =
+                mediaList[_selectionManager.lastInteractionIndex!]['path'];
+            targetState = _selectionManager.isSelected(lastPath);
           }
-          _selectRange(_lastInteractionIndex!, index, targetState);
+          _selectRange(
+            _selectionManager.lastInteractionIndex!,
+            index,
+            targetState,
+          );
         } else {
-          if (!selectedPaths.contains(path)) selectedPaths.add(path);
-          _lastInteractionIndex = index;
+          if (!_selectionManager.isSelected(path))
+            _selectionManager.updateSelectionState(path, true);
+          _selectionManager.setLastInteractionIndex(index);
         }
-      } else if (isSelectionMode) {
+      } else if (_selectionManager.isSelectionMode) {
         if (_suppressNextTap) {
           _suppressNextTap = false;
           return;
@@ -629,36 +361,23 @@ class _GalleryPageState extends State<GalleryPage> {
       if (i < mediaList.length) {
         final p = mediaList[i]['path'];
         if (targetState) {
-          selectedPaths.add(p);
+          _selectionManager.updateSelectionState(p, true);
         } else {
-          selectedPaths.remove(p);
+          _selectionManager.updateSelectionState(p, false);
         }
       }
     }
   }
 
   void _toggleItemSelection(int index, String path) {
-    setState(() {
-      if (selectedPaths.contains(path)) {
-        selectedPaths.remove(path);
-        if (selectedPaths.isEmpty) {
-          isSelectionMode = false;
-          _lastInteractionIndex = null;
-        } else {
-          _lastInteractionIndex = index;
-        }
-      } else {
-        selectedPaths.add(path);
-        _lastInteractionIndex = index;
-      }
-    });
+    _selectionManager.toggleItem(path, index);
   }
 
   // === 优化后的手势选择逻辑 ===
   // 使用 GestureDetector 捕获水平拖拽，避免与垂直滚动冲突
 
   void _onDragSelectionStart(DragStartDetails details) {
-    if (!isSelectionMode) return;
+    if (!_selectionManager.isSelectionMode) return;
 
     // 只有在多选模式下，且手势为水平滑动时，才启动框选逻辑
     // GestureDetector 的 onHorizontalDragStart 保证了这是水平意图
@@ -672,15 +391,17 @@ class _GalleryPageState extends State<GalleryPage> {
 
         _dragStartIndex = hitIndex;
         _dragLastIndex = hitIndex;
-        _dragStartSelectedSnapshot = Set.from(selectedPaths);
+        _dragStartSelectedSnapshot = Set.from(_selectionManager.selectedPaths);
 
         final mediaList = allMedia;
         if (hitIndex < mediaList.length) {
           final path = mediaList[hitIndex]['path'];
-          _dragSelectTargetState = !selectedPaths.contains(path);
+          _dragSelectTargetState = !_selectionManager.selectedPaths.contains(
+            path,
+          );
           _updateSelectionState(hitIndex, _dragSelectTargetState!);
         }
-        _lastInteractionIndex = hitIndex;
+        _selectionManager.setLastInteractionIndex(hitIndex);
         _suppressNextTap = true;
       });
     }
@@ -696,7 +417,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (hitIndex != null && hitIndex != _dragLastIndex) {
       setState(() {
         _dragLastIndex = hitIndex;
-        _lastInteractionIndex = hitIndex;
+        _selectionManager.setLastInteractionIndex(hitIndex);
       });
       _applyRangeSelection(_dragStartIndex!, hitIndex);
     }
@@ -736,30 +457,34 @@ class _GalleryPageState extends State<GalleryPage> {
     final lower = min(start, end);
     final upper = max(start, end);
     final mediaList = allMedia;
-    setState(() {
-      selectedPaths = Set.from(_dragStartSelectedSnapshot);
-      for (int i = lower; i <= upper; i++) {
-        if (i < mediaList.length) {
-          final path = mediaList[i]['path'];
-          if (_dragSelectTargetState == true) {
-            selectedPaths.add(path);
-          } else {
-            selectedPaths.remove(path);
-          }
+
+    // Calculate the new selection state based on snapshot + delta
+    final newSelection = Set<String>.from(_dragStartSelectedSnapshot);
+    for (int i = lower; i <= upper; i++) {
+      if (i < mediaList.length) {
+        final path = mediaList[i]['path'];
+        if (_dragSelectTargetState == true) {
+          newSelection.add(path);
+        } else {
+          newSelection.remove(path);
         }
       }
-    });
+    }
+
+    // Sync to manager
+    // We clear and re-select to ensure consistency.
+    // Optimization: If manager had 'replaceSelection', it would be better.
+    _selectionManager.clearSelection();
+    if (newSelection.isNotEmpty) {
+      _selectionManager.selectAll(newSelection.toList());
+    }
   }
 
   void _updateSelectionState(int index, bool select) {
     final mediaList = allMedia;
     if (index < mediaList.length) {
       final path = mediaList[index]['path'];
-      if (select) {
-        selectedPaths.add(path);
-      } else {
-        selectedPaths.remove(path);
-      }
+      _selectionManager.updateSelectionState(path, select);
     }
   }
 
@@ -805,24 +530,16 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  bool _isPointerInContentArea(Offset globalPosition) {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.hasSize) return false;
-    final local = renderBox.globalToLocal(globalPosition);
-    final size = renderBox.size;
-    return local.dx >= 0 &&
-        local.dy >= 0 &&
-        local.dx < size.width &&
-        local.dy < size.height;
-  }
-
   Future<void> _rotateSelected(int angle) async {
-    if (selectedPaths.isEmpty) return;
+    if (_selectionManager.selectedPaths.isEmpty) return;
     try {
-      final pathsToUpdate = List<String>.from(selectedPaths);
+      final pathsToUpdate = List<String>.from(_selectionManager.selectedPaths);
       final response = await Dio().post(
         '$serverUrl/api/rotate',
-        data: {'paths': jsonEncode(selectedPaths.toList()), 'angle': angle},
+        data: {
+          'paths': jsonEncode(_selectionManager.selectedPaths.toList()),
+          'angle': angle,
+        },
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
       if (response.data != null && response.data['taskId'] != null) {
@@ -830,8 +547,7 @@ class _GalleryPageState extends State<GalleryPage> {
       }
 
       setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
+        _selectionManager.clearSelection();
       });
       ScaffoldMessenger.of(
         context,
@@ -844,7 +560,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _deleteSelected() async {
-    if (selectedPaths.isEmpty) return;
+    if (_selectionManager.selectedPaths.isEmpty) return;
     bool? confirm = await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -854,7 +570,7 @@ class _GalleryPageState extends State<GalleryPage> {
           style: TextStyle(color: Colors.white),
         ),
         content: Text(
-          "Delete ${selectedPaths.length} items permanently?",
+          "Delete ${_selectionManager.selectedPaths.length} items permanently?",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -870,23 +586,22 @@ class _GalleryPageState extends State<GalleryPage> {
       ),
     );
     if (confirm == true) {
-      for (var path in selectedPaths) {
+      for (var path in _selectionManager.selectedPaths) {
         await Dio().post(
           '$serverUrl/api/delete',
           data: FormData.fromMap({'path': path}),
         );
       }
       setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
+        _selectionManager.clearSelection();
       });
       _silentRefresh();
     }
   }
 
   Future<void> _renameSelected() async {
-    if (selectedPaths.length != 1) return;
-    final String path = selectedPaths.first;
+    if (_selectionManager.selectedPaths.length != 1) return;
+    final String path = _selectionManager.selectedPaths.first;
     var item = combinedMedia.firstWhere(
       (e) => e['path'] == path,
       orElse: () => null,
@@ -938,8 +653,7 @@ class _GalleryPageState extends State<GalleryPage> {
           data: FormData.fromMap({'path': path, 'name': newName}),
         );
         setState(() {
-          isSelectionMode = false;
-          selectedPaths.clear();
+          _selectionManager.clearSelection();
         });
         _silentRefresh();
       } catch (e) {
@@ -950,238 +664,10 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  Future<void> _renameFolderDialog(dynamic folder) async {
-    TextEditingController controller = TextEditingController(
-      text: folder['name'],
-    );
-    String? newName = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF252528),
-        title: const Text("Rename", style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text("Rename"),
-          ),
-        ],
-      ),
-    );
-    if (newName != null && newName.isNotEmpty && newName != folder['name']) {
-      await Dio().post(
-        '$serverUrl/api/rename',
-        data: FormData.fromMap({'path': folder['path'], 'name': newName}),
-      );
-      _silentRefresh();
-    }
-  }
-
-  Future<void> _deleteFolderDialog(dynamic folder) async {
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF252528),
-        title: const Text(
-          "Delete Folder?",
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          "This cannot be undone.",
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await Dio().post(
-        '$serverUrl/api/delete',
-        data: FormData.fromMap({'path': folder['path']}),
-      );
-      _silentRefresh();
-    }
-  }
-
-  Future<void> _convertWebP(dynamic folder) async {
-    await Dio().post(
-      '$serverUrl/api/convert-webp',
-      data: FormData.fromMap({'path': folder['path']}),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("WebP Conversion task started...")),
-    );
-  }
-
-  Future<void> _cleanFolderDialog(dynamic folder) async {
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF252528),
-        title: const Text(
-          "Clean Junk Files?",
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Folder: ${folder['name']}",
-              style: const TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "This will RECURSIVELY delete junk files (.url, .txt, .html, promotion images, etc.) inside this folder.",
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "This action cannot be undone.",
-              style: TextStyle(color: Colors.redAccent, fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              "Clean",
-              style: TextStyle(color: Colors.orangeAccent),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await Dio().post(
-          '$serverUrl/api/clean',
-          data: FormData.fromMap({'path': folder['path']}),
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Cleaning task started... Check task list for progress.",
-            ),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
-      }
-    }
-  }
-
-  Future<void> _organizeFolderDialog(dynamic folder) async {
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF252528),
-        title: const Text(
-          "Organize Files?",
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Folder: ${folder['name']}",
-              style: const TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "This will recursively rename ALL files in subdirectories to a sequential number format (0001.jpg, 0002.mp4...).",
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "It uses 'Natural Sort' (1.jpg, 2.jpg, 10.jpg).",
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "WARNING: Original filenames will be lost!",
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              "Organize",
-              style: TextStyle(color: Colors.purpleAccent),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await Dio().post(
-          '$serverUrl/api/organize',
-          data: FormData.fromMap({'path': folder['path']}),
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Organizing task started..."),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to start task: $e")));
-      }
-    }
-  }
-
   bool get _areAllSelectedItemsFolders {
-    if (selectedPaths.isEmpty) return false;
+    if (_selectionManager.selectedPaths.isEmpty) return false;
     // Check if every selected path exists in the 'folders' list
-    for (final path in selectedPaths) {
+    for (final path in _selectionManager.selectedPaths) {
       if (!folders.any((f) => f['path'] == path)) {
         return false;
       }
@@ -1190,7 +676,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _batchConvertWebP() async {
-    for (final path in selectedPaths) {
+    for (final path in _selectionManager.selectedPaths) {
       await Dio().post(
         '$serverUrl/api/convert-webp',
         data: FormData.fromMap({'path': path}),
@@ -1200,8 +686,7 @@ class _GalleryPageState extends State<GalleryPage> {
       const SnackBar(content: Text("Batch WebP Conversion tasks started...")),
     );
     setState(() {
-      isSelectionMode = false;
-      selectedPaths.clear();
+      _selectionManager.clearSelection();
     });
   }
 
@@ -1215,7 +700,7 @@ class _GalleryPageState extends State<GalleryPage> {
           style: TextStyle(color: Colors.white),
         ),
         content: Text(
-          "Clean ${selectedPaths.length} folders?\nThis cannot be undone.",
+          "Clean ${_selectionManager.selectedPaths.length} folders?\nThis cannot be undone.",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -1235,7 +720,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
 
     if (confirm == true) {
-      for (final path in selectedPaths) {
+      for (final path in _selectionManager.selectedPaths) {
         try {
           await Dio().post(
             '$serverUrl/api/clean',
@@ -1249,8 +734,7 @@ class _GalleryPageState extends State<GalleryPage> {
         context,
       ).showSnackBar(const SnackBar(content: Text("Batch clean started...")));
       setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
+        _selectionManager.clearSelection();
       });
     }
   }
@@ -1265,7 +749,7 @@ class _GalleryPageState extends State<GalleryPage> {
           style: TextStyle(color: Colors.white),
         ),
         content: Text(
-          "Organize ${selectedPaths.length} folders?\nFilenames will be lost!",
+          "Organize ${_selectionManager.selectedPaths.length} folders?\nFilenames will be lost!",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -1285,7 +769,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
 
     if (confirm == true) {
-      for (final path in selectedPaths) {
+      for (final path in _selectionManager.selectedPaths) {
         try {
           await Dio().post(
             '$serverUrl/api/organize',
@@ -1299,8 +783,7 @@ class _GalleryPageState extends State<GalleryPage> {
         const SnackBar(content: Text("Batch organize started...")),
       );
       setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
+        _selectionManager.clearSelection();
       });
     }
   }
@@ -1315,7 +798,7 @@ class _GalleryPageState extends State<GalleryPage> {
           style: const TextStyle(color: Colors.white),
         ),
         content: Text(
-          "Process ${selectedPaths.length} folders recursively?",
+          "Process ${_selectionManager.selectedPaths.length} folders recursively?",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -1338,10 +821,9 @@ class _GalleryPageState extends State<GalleryPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Batch cover operation started...")),
       );
-      final List<String> targets = List.from(selectedPaths);
+      final List<String> targets = List.from(_selectionManager.selectedPaths);
       setState(() {
-        isSelectionMode = false;
-        selectedPaths.clear();
+        _selectionManager.clearSelection();
       });
 
       for (final path in targets) {
@@ -1370,88 +852,6 @@ class _GalleryPageState extends State<GalleryPage> {
 
         setState(() {}); // Trigger rebuild
       }
-    }
-  }
-
-  Future<void> _handleSetCover(dynamic folder, bool isFirst) async {
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF252528),
-        title: Text(
-          isFirst ? "Set First as Cover?" : "Set Last as Cover?",
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Folder: ${folder['name']}",
-              style: const TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "This will RECURSIVELY check every subfolder.",
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "In each folder, the ${isFirst ? 'FIRST' : 'LAST'} image will be renamed to 'cover.*'.",
-              style: const TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Existing 'cover' images will be replaced!",
-              style: TextStyle(color: Colors.redAccent, fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              "Execute",
-              style: TextStyle(
-                color: isFirst ? Colors.cyanAccent : Colors.pinkAccent,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Cover operation started in background..."),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      // Run in background
-      _setCoverRecursive(folder['path'], isFirst)
-          .then((_) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Cover operation completed!")),
-              );
-              _silentRefresh();
-            }
-          })
-          .catchError((e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("Cover operation failed: $e")),
-              );
-            }
-          });
     }
   }
 
@@ -1968,7 +1368,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _openPreview(int initialIndex) async {
-    _lastInteractionIndex = initialIndex;
+    _selectionManager.setLastInteractionIndex(initialIndex);
     final result = await Navigator.push<int>(
       context,
       CupertinoPageRoute(
@@ -1984,7 +1384,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (result != null && result >= 0 && result < images.length) {
       setState(() {
-        _lastInteractionIndex = result;
+        _selectionManager.setLastInteractionIndex(result);
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToImage(result, smartScroll: true);
@@ -1998,6 +1398,16 @@ class _GalleryPageState extends State<GalleryPage> {
     required int globalStartIndex,
   }) {
     if (items.isEmpty) return [];
+
+    // Check cache
+    if (_cachedImageRows != null &&
+        screenWidth == _lastScreenWidth &&
+        items.length == _cachedImageCount) {
+      return _cachedImageRows!;
+    }
+
+    _lastScreenWidth = screenWidth;
+    _cachedImageCount = items.length;
 
     double targetRowHeight = 300.0;
     if (screenWidth >= 600 && screenWidth < 1400) {
@@ -2064,6 +1474,7 @@ class _GalleryPageState extends State<GalleryPage> {
         currentRowStartLocalIndex = i + 1;
       }
     }
+    _cachedImageRows = rows;
     return rows;
   }
 
@@ -2091,7 +1502,7 @@ class _GalleryPageState extends State<GalleryPage> {
       double itemWidth = height * (w / h);
       int currentLocalIndex = localStartIndex + i;
       int currentGlobalIndex = globalStartIndex + currentLocalIndex;
-      bool isSelected = selectedPaths.contains(path);
+      bool isSelected = _selectionManager.selectedPaths.contains(path);
 
       bool shouldAutofocus =
           (currentLocalIndex == 0) && folders.isEmpty && videos.isEmpty;
@@ -2100,136 +1511,107 @@ class _GalleryPageState extends State<GalleryPage> {
         MetaData(
           metaData: currentGlobalIndex,
           behavior: HitTestBehavior.opaque,
-          child: SizedBox(
-            width: itemWidth,
-            height: height,
-            child: TVFocusableWidget(
-              autofocus: shouldAutofocus,
-              isSelected: isSelected,
-              key: ValueKey(path),
-              onTap: () {
-                final isShiftPressed =
-                    HardwareKeyboard.instance.logicalKeysPressed.contains(
-                      LogicalKeyboardKey.shiftLeft,
-                    ) ||
-                    HardwareKeyboard.instance.logicalKeysPressed.contains(
-                      LogicalKeyboardKey.shiftRight,
-                    );
-                if (isSelectionMode || isShiftPressed) {
-                  _handleTapSelection(currentGlobalIndex, path);
-                } else {
-                  if (isVideo) {
-                    Navigator.push(
-                      context,
-                      CupertinoPageRoute(
-                        builder: (context) =>
-                            VideoPlayerPage(videoUrl: fileUrl),
-                      ),
-                    );
-                  } else {
-                    int imageIndex = currentLocalIndex;
-                    setState(() {
-                      _lastInteractionIndex = currentGlobalIndex;
-                    });
-                    _openPreview(imageIndex);
-                  }
-                }
-              },
-              onSecondaryTap: () {
-                if (!isSelectionMode) {
-                  setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
-                  });
-                }
-              },
-              onLongPress: () {
-                if (!isSelectionMode) {
-                  setState(() {
-                    isSelectionMode = true;
-                    selectedPaths.add(path);
-                    _lastInteractionIndex = currentGlobalIndex;
-                  });
-                  HapticFeedback.mediumImpact();
-                }
-              },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      color: const Color(0xFF202023),
-                      child: isVideo
-                          ? Stack(
-                              alignment: Alignment.center,
-                              fit: StackFit.expand,
-                              children: [
-                                if (thumbUrl.isNotEmpty)
-                                  CachedNetworkImage(
-                                    imageUrl: thumbUrl,
-                                    fit: BoxFit.cover,
-                                    memCacheHeight: 400,
-                                    placeholder: (context, url) => Container(
-                                      color: const Color(0xFF202023),
-                                    ),
-                                  )
-                                else
-                                  Container(
-                                    decoration: const BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Color(0xFF2C2C2E),
-                                          Color(0xFF1C1C1E),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
-                                    ),
-                                  ),
-                                Container(color: Colors.black26),
-                                const Icon(
-                                  Icons.play_arrow,
-                                  color: Colors.white,
-                                  size: 32,
-                                ),
-                              ],
-                            )
-                          : CachedNetworkImage(
-                              imageUrl: fileUrl,
-                              memCacheHeight: 1000,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) =>
-                                  Container(color: const Color(0xFF202023)),
-                              errorWidget: (context, url, error) =>
-                                  const Icon(Icons.error),
-                            ),
-                    ),
-                  ),
-                  if (isSelectionMode)
-                    Container(
-                      color: isSelected ? Colors.black45 : Colors.transparent,
-                      child: Align(
-                        alignment: Alignment.topRight,
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Icon(
-                            isSelected
-                                ? Icons.check_circle
-                                : Icons.circle_outlined,
-                            color: isSelected
-                                ? Colors.tealAccent
-                                : Colors.white70,
-                            size: 28,
-                          ),
+          child: isVideo
+              ? GalleryVideoItem(
+                  video: item,
+                  thumbUrl: thumbUrl,
+                  isSelected: isSelected,
+                  isSelectionMode: _selectionManager.isSelectionMode,
+                  autofocus: shouldAutofocus,
+                  onTap: () {
+                    // Video tap logic
+                    if (_selectionManager.isSelectionMode ||
+                        HardwareKeyboard.instance.logicalKeysPressed.contains(
+                          LogicalKeyboardKey.shiftLeft,
+                        )) {
+                      _handleTapSelection(currentGlobalIndex, path);
+                    } else {
+                      Navigator.push(
+                        context,
+                        CupertinoPageRoute(
+                          builder: (context) =>
+                              VideoPlayerPage(videoUrl: fileUrl),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+                      );
+                    }
+                  },
+                  onSecondaryTap: () {
+                    if (!_selectionManager.isSelectionMode) {
+                      setState(() {
+                        _selectionManager.setSelectionMode(true);
+                        _selectionManager.updateSelectionState(path, true);
+                        _selectionManager.setLastInteractionIndex(
+                          currentGlobalIndex,
+                        );
+                      });
+                    }
+                  },
+                  onLongPress: () {
+                    if (!_selectionManager.isSelectionMode) {
+                      setState(() {
+                        _selectionManager.setSelectionMode(true);
+                        _selectionManager.updateSelectionState(path, true);
+                        _selectionManager.setLastInteractionIndex(
+                          currentGlobalIndex,
+                        );
+                      });
+                      HapticFeedback.mediumImpact();
+                    }
+                  },
+                )
+              : GalleryImageItem(
+                  image: item,
+                  fileUrl: fileUrl,
+                  thumbUrl: thumbUrl,
+                  width: itemWidth,
+                  height: height,
+                  isSelected: isSelected,
+                  isSelectionMode: _selectionManager.isSelectionMode,
+                  autofocus: shouldAutofocus,
+                  onTap: () {
+                    final isShiftPressed =
+                        HardwareKeyboard.instance.logicalKeysPressed.contains(
+                          LogicalKeyboardKey.shiftLeft,
+                        ) ||
+                        HardwareKeyboard.instance.logicalKeysPressed.contains(
+                          LogicalKeyboardKey.shiftRight,
+                        );
+                    if (_selectionManager.isSelectionMode || isShiftPressed) {
+                      _handleTapSelection(currentGlobalIndex, path);
+                    } else {
+                      int imageIndex = currentLocalIndex;
+                      setState(() {
+                        _selectionManager.setLastInteractionIndex(
+                          currentGlobalIndex,
+                        );
+                      });
+                      _openPreview(imageIndex);
+                    }
+                  },
+                  onSecondaryTap: () {
+                    if (!_selectionManager.isSelectionMode) {
+                      setState(() {
+                        _selectionManager.setSelectionMode(true);
+                        _selectionManager.updateSelectionState(path, true);
+                        _selectionManager.setLastInteractionIndex(
+                          currentGlobalIndex,
+                        );
+                      });
+                    }
+                  },
+                  onLongPress: () {
+                    if (!_selectionManager.isSelectionMode) {
+                      setState(() {
+                        _selectionManager.setSelectionMode(true);
+                        _selectionManager.updateSelectionState(path, true);
+                        _selectionManager.setLastInteractionIndex(
+                          currentGlobalIndex,
+                        );
+                      });
+                      HapticFeedback.mediumImpact();
+                    }
+                  },
+                ),
         ),
       );
       if (i < rowItems.length - 1) children.add(SizedBox(width: spacing));
@@ -2292,9 +1674,9 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (_lastScreenWidth != null &&
         (screenWidth - _lastScreenWidth!).abs() > 1.0) {
-      if (_lastInteractionIndex != null) {
+      if (_selectionManager.lastInteractionIndex != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToImage(_lastInteractionIndex!, jump: true);
+          _scrollToImage(_selectionManager.lastInteractionIndex!, jump: true);
         });
       }
     }
@@ -2318,7 +1700,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: isSelectionMode
+        leading: _selectionManager.isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: _toggleSelectionMode,
@@ -2326,8 +1708,8 @@ class _GalleryPageState extends State<GalleryPage> {
             : (Navigator.canPop(context)
                   ? const BackButton()
                   : const Icon(Icons.menu, color: Colors.transparent)),
-        title: isSelectionMode
-            ? Text("${selectedPaths.length} Selected")
+        title: _selectionManager.isSelectionMode
+            ? Text("${_selectionManager.selectedPaths.length} Selected")
             : _buildBreadcrumbs(),
         actions: [
           ValueListenableBuilder<Map<String, dynamic>>(
@@ -2350,7 +1732,7 @@ class _GalleryPageState extends State<GalleryPage> {
               );
             },
           ),
-          if (isSelectionMode)
+          if (_selectionManager.isSelectionMode)
             IconButton(
               icon: const Icon(Icons.select_all),
               onPressed: _selectAll,
@@ -2438,7 +1820,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 ],
               ),
       ),
-      bottomNavigationBar: isSelectionMode
+      bottomNavigationBar: _selectionManager.isSelectionMode
           ? Container(
               color: const Color(0xFF18181B),
               child: SafeArea(
@@ -2453,7 +1835,7 @@ class _GalleryPageState extends State<GalleryPage> {
                               _buildBottomBtn(
                                 Icons.drive_file_rename_outline,
                                 "Rename",
-                                selectedPaths.length == 1
+                                _selectionManager.selectedPaths.length == 1
                                     ? _renameSelected
                                     : null,
                                 color: Colors.blueAccent,
@@ -2509,7 +1891,7 @@ class _GalleryPageState extends State<GalleryPage> {
                               _buildBottomBtn(
                                 Icons.drive_file_rename_outline,
                                 "Rename",
-                                selectedPaths.length == 1
+                                _selectionManager.selectedPaths.length == 1
                                     ? _renameSelected
                                     : null,
                                 color: Colors.blueAccent,
@@ -2527,69 +1909,6 @@ class _GalleryPageState extends State<GalleryPage> {
               ),
             )
           : null,
-    );
-  }
-}
-
-class VideoResolutionTag extends StatefulWidget {
-  final String path;
-  const VideoResolutionTag({super.key, required this.path});
-
-  @override
-  State<VideoResolutionTag> createState() => _VideoResolutionTagState();
-}
-
-class _VideoResolutionTagState extends State<VideoResolutionTag> {
-  String text = "VIDEO";
-  static final Map<String, String> _cache = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchResolution();
-  }
-
-  Future<void> _fetchResolution() async {
-    if (_cache.containsKey(widget.path)) {
-      if (mounted) setState(() => text = _cache[widget.path]!);
-      return;
-    }
-    try {
-      final response = await Dio().get(
-        '$serverUrl/api/video-info',
-        queryParameters: {'path': widget.path},
-      );
-      if (mounted && response.data != null) {
-        final w = response.data['w'];
-        final h = response.data['h'];
-        if (w != null && h != null && w > 0 && h > 0) {
-          final newText = "$w x $h";
-          _cache[widget.path] = newText;
-          setState(() {
-            text = newText;
-          });
-        }
-      }
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-          fontFamily: "monospace",
-        ),
-      ),
     );
   }
 }
