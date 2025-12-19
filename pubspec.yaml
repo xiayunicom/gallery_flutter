@@ -41,14 +41,15 @@ dependencies:
   flutter_client_sse: ^2.0.3
   badges: ^3.1.2
   media_kit: ^1.1.10
-  media_kit_video: ^1.2.4
+  media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.4
-  device_info_plus: ^10.0.0
+  device_info_plus: ^12.3.0
   flutter_cache_manager: ^3.4.1
+  path_provider: ^2.1.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -100,6 +101,9 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon" # 如果以后要发安卓，这里设为 true 或文件名
   ios: true
-  windows: true
+  windows:
+    generate: true
+    image_path: "assets/app_icon.png"
+    icon_size: 48
   image_path: "assets/app_icon.png"
   remove_alpha_ios: true

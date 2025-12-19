@@ -63,6 +63,16 @@ class GalleryApp extends StatelessWidget {
         bottomSheetTheme: const BottomSheetThemeData(
           backgroundColor: Color(0xFF202023),
         ),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: Colors.white12,
+          contentTextStyle: const TextStyle(color: Colors.white),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+        ),
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: CupertinoPageTransitionsBuilder(),
