@@ -67,6 +67,34 @@ class _GalleryPageState extends State<GalleryPage> {
 
   static const double kSpacing = 1.0;
 
+  // Sorting State
+  bool _isNameDesc = false;
+
+  void _toggleSort() {
+    setState(() {
+      _isNameDesc = !_isNameDesc;
+      _sortLists();
+      _cachedRowLayouts = null; // Invalidate layout cache
+    });
+  }
+
+  void _sortLists() {
+    int Function(dynamic, dynamic) compare;
+    if (_isNameDesc) {
+      compare = (a, b) => (b['name'] as String).toLowerCase().compareTo(
+        (a['name'] as String).toLowerCase(),
+      );
+    } else {
+      compare = (a, b) => (a['name'] as String).toLowerCase().compareTo(
+        (b['name'] as String).toLowerCase(),
+      );
+    }
+
+    folders.sort(compare);
+    videos.sort(compare);
+    images.sort(compare);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -107,6 +135,7 @@ class _GalleryPageState extends State<GalleryPage> {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
+          _sortLists(); // Apply sort
           isLoading = false;
           _cachedRowLayouts = null; // Invalidate cache
         });
@@ -133,6 +162,7 @@ class _GalleryPageState extends State<GalleryPage> {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
+          _sortLists(); // Apply sort
         });
       }
     } catch (_) {}
@@ -1726,6 +1756,14 @@ class _GalleryPageState extends State<GalleryPage> {
             ? Text("${_selectionManager.selectedPaths.length} Selected")
             : _buildBreadcrumbs(),
         actions: [
+          IconButton(
+            icon: Icon(
+              _isNameDesc ? Icons.sort_by_alpha : Icons.sort,
+              color: _isNameDesc ? Colors.tealAccent : Colors.white,
+            ),
+            tooltip: _isNameDesc ? "Sort Ascending" : "Sort Descending",
+            onPressed: _toggleSort,
+          ),
           ValueListenableBuilder<Map<String, dynamic>>(
             valueListenable: TaskManager().tasksNotifier,
             builder: (context, tasks, child) {
