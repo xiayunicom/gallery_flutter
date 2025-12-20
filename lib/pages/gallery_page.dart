@@ -64,6 +64,7 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _suppressNextTap = false;
 
   double? _lastScreenWidth;
+  double? _cachedLayoutWidth;
   // Cache for Justified Layout
   List<_RowLayout>? _cachedRowLayouts;
   int? _cachedImageCount;
@@ -1440,9 +1441,9 @@ class _GalleryPageState extends State<GalleryPage> {
     // We cache the LAYOUT (sizes, groupings), not the Widgets.
     // This allows rebuilding Widgets with new state (selection) without re-calculating layout.
     if (_cachedRowLayouts == null ||
-        screenWidth != _lastScreenWidth ||
+        screenWidth != _cachedLayoutWidth ||
         items.length != _cachedImageCount) {
-      _lastScreenWidth = screenWidth;
+      _cachedLayoutWidth = screenWidth;
       _cachedImageCount = items.length;
 
       List<_RowLayout> newLayouts = [];
