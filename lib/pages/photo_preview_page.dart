@@ -112,8 +112,9 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
     double newScale = currentScale + delta;
 
     // 限制缩放范围
+    // 限制缩放范围
     if (newScale < 0.1) newScale = 0.1;
-    if (newScale > 5.0) newScale = 5.0;
+    if (newScale > 1.0) newScale = 1.0;
 
     controller.scale = newScale;
 
@@ -472,7 +473,7 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                               imageProvider: CachedNetworkImageProvider(imgUrl),
                               initialScale: PhotoViewComputedScale.contained,
                               minScale: PhotoViewComputedScale.contained * 0.8,
-                              maxScale: PhotoViewComputedScale.covered * 4,
+                              maxScale: 1.0,
                               heroAttributes: PhotoViewHeroAttributes(
                                 tag: item['path'],
                               ),

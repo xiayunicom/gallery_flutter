@@ -1903,7 +1903,8 @@ class _GalleryPageState extends State<GalleryPage> {
                                 ))
                         : _scrollPhysics,
                     slivers: [
-                      if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
+                      if (folders.isNotEmpty)
+                        _buildSectionTitle("FOLDERS (${folders.length})"),
                       if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
                       if (videos.isNotEmpty)
                         _buildSectionTitle("VIDEOS (${videos.length})"),
