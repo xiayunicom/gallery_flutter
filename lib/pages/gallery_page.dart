@@ -18,6 +18,9 @@ import '../services/selection_state_manager.dart';
 import '../services/task_manager.dart';
 
 import '../widgets/gallery_items.dart';
+import 'package:window_manager/window_manager.dart';
+import '../widgets/window_controls.dart';
+
 import 'video_player_page.dart';
 import 'photo_preview_page.dart';
 
@@ -1752,9 +1755,17 @@ class _GalleryPageState extends State<GalleryPage> {
             : (Navigator.canPop(context)
                   ? const BackButton()
                   : const Icon(Icons.menu, color: Colors.transparent)),
-        title: _selectionManager.isSelectionMode
-            ? Text("${_selectionManager.selectedPaths.length} Selected")
-            : _buildBreadcrumbs(),
+        title: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: (details) {
+            if (Platform.isWindows) {
+              windowManager.startDragging();
+            }
+          },
+          child: _selectionManager.isSelectionMode
+              ? Text("${_selectionManager.selectedPaths.length} Selected")
+              : _buildBreadcrumbs(),
+        ),
         actions: [
           IconButton(
             icon: Icon(
@@ -1821,6 +1832,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ],
             ),
+          if (Platform.isWindows) const WindowControls(),
         ],
       ),
       // 使用 GestureDetector 包裹 CustomScrollView，专门处理水平滑动选择

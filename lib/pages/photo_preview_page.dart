@@ -1,6 +1,7 @@
 // lib/pages/photo_preview_page.dart
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,8 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import '../config.dart';
 import '../services/task_manager.dart';
+import 'package:window_manager/window_manager.dart';
+import '../widgets/window_controls.dart';
 
 class PhotoPreviewPage extends StatefulWidget {
   final List<dynamic> images;
@@ -599,45 +602,57 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
 
                         // 中间：标题
                         Center(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(30),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 6,
+                          child: GestureDetector(
+                            onPanStart: (details) {
+                              if (Platform.isWindows) {
+                                windowManager.startDragging();
+                              }
+                            },
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(30),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: 10,
+                                  sigmaY: 10,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white12,
-                                  borderRadius: BorderRadius.circular(30),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      currentItem['name'],
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12,
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        currentItem['name'],
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (currentItem['w'] != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text(
-                                          "${currentItem['w']} x ${currentItem['h']} px",
-                                          style: const TextStyle(
-                                            color: Colors.white54,
-                                            fontSize: 10,
-                                            fontFamily: 'monospace',
+                                      if (currentItem['w'] != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 2,
+                                          ),
+                                          child: Text(
+                                            "${currentItem['w']} x ${currentItem['h']} px",
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 10,
+                                              fontFamily: 'monospace',
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -694,6 +709,10 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                                 iconSize: 24,
                                 onPressed: _deleteCurrentPhoto,
                               ),
+                              if (Platform.isWindows) ...[
+                                const SizedBox(width: 16),
+                                const WindowControls(),
+                              ],
                             ],
                           ),
                         ),
