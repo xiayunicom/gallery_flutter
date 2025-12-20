@@ -537,6 +537,28 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                     right: 16,
                     child: Stack(
                       children: [
+                        // 增加整个顶部区域的拖动/双击支持
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onPanStart: (details) {
+                              if (Platform.isWindows) {
+                                windowManager.startDragging();
+                              }
+                            },
+                            onDoubleTap: () async {
+                              if (Platform.isWindows) {
+                                if (await windowManager.isFullScreen()) {
+                                  windowManager.setFullScreen(false);
+                                } else if (await windowManager.isMaximized()) {
+                                  windowManager.unmaximize();
+                                } else {
+                                  windowManager.maximize();
+                                }
+                              }
+                            },
+                          ),
+                        ),
                         // 左侧：返回箭头 + 页码
                         Row(
                           children: [
@@ -606,6 +628,15 @@ class _PhotoPreviewPageState extends State<PhotoPreviewPage>
                             onPanStart: (details) {
                               if (Platform.isWindows) {
                                 windowManager.startDragging();
+                              }
+                            },
+                            onDoubleTap: () async {
+                              if (Platform.isWindows) {
+                                if (await windowManager.isMaximized()) {
+                                  windowManager.unmaximize();
+                                } else {
+                                  windowManager.maximize();
+                                }
                               }
                             },
                             child: ClipRRect(

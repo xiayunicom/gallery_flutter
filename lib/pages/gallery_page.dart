@@ -68,6 +68,7 @@ class _GalleryPageState extends State<GalleryPage> {
   // Cache for Justified Layout
   List<_RowLayout>? _cachedRowLayouts;
   int? _cachedImageCount;
+  List<dynamic>? _cachedItemsRef;
 
   static const double kSpacing = 1.0;
 
@@ -167,6 +168,7 @@ class _GalleryPageState extends State<GalleryPage> {
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
           _sortLists(); // Apply sort
+          _cachedRowLayouts = null; // Invalidate cache
         });
       }
     } catch (_) {}
@@ -1442,9 +1444,11 @@ class _GalleryPageState extends State<GalleryPage> {
     // This allows rebuilding Widgets with new state (selection) without re-calculating layout.
     if (_cachedRowLayouts == null ||
         screenWidth != _cachedLayoutWidth ||
-        items.length != _cachedImageCount) {
+        items.length != _cachedImageCount ||
+        items != _cachedItemsRef) {
       _cachedLayoutWidth = screenWidth;
       _cachedImageCount = items.length;
+      _cachedItemsRef = items;
 
       List<_RowLayout> newLayouts = [];
 
@@ -1740,14 +1744,27 @@ class _GalleryPageState extends State<GalleryPage> {
     else
       crossAxisCount = 8;
 
-    final List<Widget> imageRows = _computeJustifiedRows(
-      screenWidth,
-      images,
-      globalStartIndex: folders.length + videos.length,
-    );
-
     return Scaffold(
       appBar: AppBar(
+        flexibleSpace: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: (details) {
+            if (Platform.isWindows) {
+              windowManager.startDragging();
+            }
+          },
+          onDoubleTap: () async {
+            if (Platform.isWindows) {
+              if (await windowManager.isFullScreen()) {
+                windowManager.setFullScreen(false);
+              } else if (await windowManager.isMaximized()) {
+                windowManager.unmaximize();
+              } else {
+                windowManager.maximize();
+              }
+            }
+          },
+        ),
         leading: _selectionManager.isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
@@ -1761,6 +1778,15 @@ class _GalleryPageState extends State<GalleryPage> {
           onPanStart: (details) {
             if (Platform.isWindows) {
               windowManager.startDragging();
+            }
+          },
+          onDoubleTap: () async {
+            if (Platform.isWindows) {
+              if (await windowManager.isMaximized()) {
+                windowManager.unmaximize();
+              } else {
+                windowManager.maximize();
+              }
             }
           },
           child: _selectionManager.isSelectionMode
@@ -1852,37 +1878,54 @@ class _GalleryPageState extends State<GalleryPage> {
                   style: const TextStyle(color: Colors.red),
                 ),
               )
-            : CustomScrollView(
-                controller: _scrollController,
-                cacheExtent: 2000.0,
-                // 根据是否正在拖拽选择来动态调整 physics，防止选择时列表滚动
-                physics: _scrollPhysics.parent == null
-                    ? (_isDragSelecting
-                          ? const NeverScrollableScrollPhysics()
-                          : const BouncingScrollPhysics(
-                              parent: AlwaysScrollableScrollPhysics(),
-                            ))
-                    : _scrollPhysics,
-                slivers: [
-                  if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
-                  if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
-                  if (videos.isNotEmpty)
-                    _buildSectionTitle("VIDEOS (${videos.length})"),
-                  if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
-                  if (images.isNotEmpty)
-                    _buildSectionTitle("IMAGES (${images.length})"),
-                  if (images.isNotEmpty)
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) => imageRows[index],
-                          childCount: imageRows.length,
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final double layoutWidth = constraints.maxWidth;
+
+                  // Update layout cache if width changed significantly or layout is null
+                  // Passing layoutWidth to _computeJustifiedRows via build logic is hard because _computeJustifiedRows is called BEFORE build returns.
+                  // Wait, I can explicitly call it here.
+
+                  final List<Widget> imageRows = _computeJustifiedRows(
+                    layoutWidth, // Use precise constraint width
+                    images,
+                    globalStartIndex: folders.length + videos.length,
+                  );
+
+                  return CustomScrollView(
+                    controller: _scrollController,
+                    cacheExtent: 2000.0,
+                    physics: _scrollPhysics.parent == null
+                        ? (_isDragSelecting
+                              ? const NeverScrollableScrollPhysics()
+                              : const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ))
+                        : _scrollPhysics,
+                    slivers: [
+                      if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
+                      if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
+                      if (videos.isNotEmpty)
+                        _buildSectionTitle("VIDEOS (${videos.length})"),
+                      if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
+                      if (images.isNotEmpty)
+                        _buildSectionTitle("IMAGES (${images.length})"),
+                      if (images.isNotEmpty)
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: kSpacing,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) => imageRows[index],
+                              childCount: imageRows.length,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
-                ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                    ],
+                  );
+                },
               ),
       ),
       bottomNavigationBar: _selectionManager.isSelectionMode
