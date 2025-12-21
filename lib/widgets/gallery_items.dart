@@ -264,13 +264,6 @@ class GalleryVideoItem extends StatelessWidget {
                           color: Colors.white,
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
-                          shadows: [
-                            Shadow(
-                              blurRadius: 2,
-                              color: Colors.black,
-                              offset: Offset(0, 1),
-                            ),
-                          ],
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

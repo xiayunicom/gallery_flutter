@@ -18,6 +18,9 @@ import '../services/selection_state_manager.dart';
 import '../services/task_manager.dart';
 
 import '../widgets/gallery_items.dart';
+import 'package:window_manager/window_manager.dart';
+import '../widgets/window_controls.dart';
+
 import 'video_player_page.dart';
 import 'photo_preview_page.dart';
 
@@ -61,11 +64,41 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _suppressNextTap = false;
 
   double? _lastScreenWidth;
+  double? _cachedLayoutWidth;
   // Cache for Justified Layout
   List<_RowLayout>? _cachedRowLayouts;
   int? _cachedImageCount;
+  List<dynamic>? _cachedItemsRef;
 
   static const double kSpacing = 1.0;
+
+  // Sorting State
+  bool _isNameDesc = false;
+
+  void _toggleSort() {
+    setState(() {
+      _isNameDesc = !_isNameDesc;
+      _sortLists();
+      _cachedRowLayouts = null; // Invalidate layout cache
+    });
+  }
+
+  void _sortLists() {
+    int Function(dynamic, dynamic) compare;
+    if (_isNameDesc) {
+      compare = (a, b) => (b['name'] as String).toLowerCase().compareTo(
+        (a['name'] as String).toLowerCase(),
+      );
+    } else {
+      compare = (a, b) => (a['name'] as String).toLowerCase().compareTo(
+        (b['name'] as String).toLowerCase(),
+      );
+    }
+
+    folders.sort(compare);
+    videos.sort(compare);
+    images.sort(compare);
+  }
 
   @override
   void initState() {
@@ -107,6 +140,7 @@ class _GalleryPageState extends State<GalleryPage> {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
+          _sortLists(); // Apply sort
           isLoading = false;
           _cachedRowLayouts = null; // Invalidate cache
         });
@@ -133,6 +167,8 @@ class _GalleryPageState extends State<GalleryPage> {
           folders = rawList.where((e) => e['type'] == 'folder').toList();
           videos = rawList.where((e) => e['type'] == 'video').toList();
           images = rawList.where((e) => e['type'] == 'image').toList();
+          _sortLists(); // Apply sort
+          _cachedRowLayouts = null; // Invalidate cache
         });
       }
     } catch (_) {}
@@ -1407,10 +1443,12 @@ class _GalleryPageState extends State<GalleryPage> {
     // We cache the LAYOUT (sizes, groupings), not the Widgets.
     // This allows rebuilding Widgets with new state (selection) without re-calculating layout.
     if (_cachedRowLayouts == null ||
-        screenWidth != _lastScreenWidth ||
-        items.length != _cachedImageCount) {
-      _lastScreenWidth = screenWidth;
+        screenWidth != _cachedLayoutWidth ||
+        items.length != _cachedImageCount ||
+        items != _cachedItemsRef) {
+      _cachedLayoutWidth = screenWidth;
       _cachedImageCount = items.length;
+      _cachedItemsRef = items;
 
       List<_RowLayout> newLayouts = [];
 
@@ -1706,14 +1744,27 @@ class _GalleryPageState extends State<GalleryPage> {
     else
       crossAxisCount = 8;
 
-    final List<Widget> imageRows = _computeJustifiedRows(
-      screenWidth,
-      images,
-      globalStartIndex: folders.length + videos.length,
-    );
-
     return Scaffold(
       appBar: AppBar(
+        flexibleSpace: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: (details) {
+            if (Platform.isWindows) {
+              windowManager.startDragging();
+            }
+          },
+          onDoubleTap: () async {
+            if (Platform.isWindows) {
+              if (await windowManager.isFullScreen()) {
+                windowManager.setFullScreen(false);
+              } else if (await windowManager.isMaximized()) {
+                windowManager.unmaximize();
+              } else {
+                windowManager.maximize();
+              }
+            }
+          },
+        ),
         leading: _selectionManager.isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
@@ -1722,10 +1773,35 @@ class _GalleryPageState extends State<GalleryPage> {
             : (Navigator.canPop(context)
                   ? const BackButton()
                   : const Icon(Icons.menu, color: Colors.transparent)),
-        title: _selectionManager.isSelectionMode
-            ? Text("${_selectionManager.selectedPaths.length} Selected")
-            : _buildBreadcrumbs(),
+        title: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: (details) {
+            if (Platform.isWindows) {
+              windowManager.startDragging();
+            }
+          },
+          onDoubleTap: () async {
+            if (Platform.isWindows) {
+              if (await windowManager.isMaximized()) {
+                windowManager.unmaximize();
+              } else {
+                windowManager.maximize();
+              }
+            }
+          },
+          child: _selectionManager.isSelectionMode
+              ? Text("${_selectionManager.selectedPaths.length} Selected")
+              : _buildBreadcrumbs(),
+        ),
         actions: [
+          IconButton(
+            icon: Icon(
+              _isNameDesc ? Icons.sort_by_alpha : Icons.sort,
+              color: _isNameDesc ? Colors.tealAccent : Colors.white,
+            ),
+            tooltip: _isNameDesc ? "Sort Ascending" : "Sort Descending",
+            onPressed: _toggleSort,
+          ),
           ValueListenableBuilder<Map<String, dynamic>>(
             valueListenable: TaskManager().tasksNotifier,
             builder: (context, tasks, child) {
@@ -1783,6 +1859,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ],
             ),
+          if (Platform.isWindows) const WindowControls(),
         ],
       ),
       // 使用 GestureDetector 包裹 CustomScrollView，专门处理水平滑动选择
@@ -1801,37 +1878,55 @@ class _GalleryPageState extends State<GalleryPage> {
                   style: const TextStyle(color: Colors.red),
                 ),
               )
-            : CustomScrollView(
-                controller: _scrollController,
-                cacheExtent: 2000.0,
-                // 根据是否正在拖拽选择来动态调整 physics，防止选择时列表滚动
-                physics: _scrollPhysics.parent == null
-                    ? (_isDragSelecting
-                          ? const NeverScrollableScrollPhysics()
-                          : const BouncingScrollPhysics(
-                              parent: AlwaysScrollableScrollPhysics(),
-                            ))
-                    : _scrollPhysics,
-                slivers: [
-                  if (folders.isNotEmpty) _buildSectionTitle("FOLDERS"),
-                  if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
-                  if (videos.isNotEmpty)
-                    _buildSectionTitle("VIDEOS (${videos.length})"),
-                  if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
-                  if (images.isNotEmpty)
-                    _buildSectionTitle("IMAGES (${images.length})"),
-                  if (images.isNotEmpty)
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: kSpacing),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) => imageRows[index],
-                          childCount: imageRows.length,
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final double layoutWidth = constraints.maxWidth;
+
+                  // Update layout cache if width changed significantly or layout is null
+                  // Passing layoutWidth to _computeJustifiedRows via build logic is hard because _computeJustifiedRows is called BEFORE build returns.
+                  // Wait, I can explicitly call it here.
+
+                  final List<Widget> imageRows = _computeJustifiedRows(
+                    layoutWidth, // Use precise constraint width
+                    images,
+                    globalStartIndex: folders.length + videos.length,
+                  );
+
+                  return CustomScrollView(
+                    controller: _scrollController,
+                    cacheExtent: 2000.0,
+                    physics: _scrollPhysics.parent == null
+                        ? (_isDragSelecting
+                              ? const NeverScrollableScrollPhysics()
+                              : const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ))
+                        : _scrollPhysics,
+                    slivers: [
+                      if (folders.isNotEmpty)
+                        _buildSectionTitle("FOLDERS (${folders.length})"),
+                      if (folders.isNotEmpty) _buildFolderGrid(crossAxisCount),
+                      if (videos.isNotEmpty)
+                        _buildSectionTitle("VIDEOS (${videos.length})"),
+                      if (videos.isNotEmpty) _buildVideoGrid(crossAxisCount),
+                      if (images.isNotEmpty)
+                        _buildSectionTitle("IMAGES (${images.length})"),
+                      if (images.isNotEmpty)
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: kSpacing,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) => imageRows[index],
+                              childCount: imageRows.length,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
-                ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                    ],
+                  );
+                },
               ),
       ),
       bottomNavigationBar: _selectionManager.isSelectionMode
